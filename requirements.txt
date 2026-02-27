@@ -19,3 +19,4 @@ aiohttp==3.9.5
 pillow==10.4.0
 pytesseract==0.3.13
 certifi
+dnspython==2.6.1

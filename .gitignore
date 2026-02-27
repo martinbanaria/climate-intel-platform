@@ -77,19 +77,20 @@ agenthub/agents/youtube/db
 .cache/
 
 # Mobile development
-android-sdk/ -e 
-# Environment files
+android-sdk/ # Environment files
 *.env
 *.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
+
+# NPM cache
+.npm-cache/
+
+# Logs
+*.log
+
+# Emergent
+.emergent/
+.gitconfig
+
+# Test reports
+test_reports/
+test_result.md

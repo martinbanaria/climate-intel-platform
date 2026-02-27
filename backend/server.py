@@ -4,11 +4,13 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import ssl
 import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List
 import json
+import certifi
 
 # Import services
 from services.web_crawler import crawler
@@ -24,9 +26,11 @@ from models import MarketItem, ClimateMetric, ScrapedDocument, AnalyticsInsight
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
+# MongoDB connection with SSL fix for Render's Python/OpenSSL
 mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
+# Create a proper SSL context using certifi's CA bundle
+ssl_context = ssl.create_default_context(cafile=certifi.where())
+client = AsyncIOMotorClient(mongo_url, tls=True, tlsCAFile=certifi.where())
 db = client[os.environ["DB_NAME"]]
 
 # Create the main app without a prefix
