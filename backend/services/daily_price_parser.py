@@ -93,8 +93,8 @@ class DailyPriceIndexParser:
             pdf_reader = PyPDF2.PdfReader(pdf_file)
 
             text_content = []
-            # Limit to first 5 pages (usually enough for main commodities)
-            for page_num in range(min(5, len(pdf_reader.pages))):
+            # Extract all pages to get all 200+ commodities
+            for page_num in range(len(pdf_reader.pages)):
                 text = pdf_reader.pages[page_num].extract_text()
                 if text:
                     text_content.append(text)
@@ -109,63 +109,39 @@ class DailyPriceIndexParser:
         prices = {}
         lines = text.split("\n")
 
-        current_section = None
-
         for line in lines:
             line = line.strip()
             if not line or len(line) < 5:
                 continue
 
-            # Detect section headers (all caps)
+            # Skip headers and non-data lines
             if (
                 line.isupper()
-                and len(line.split()) <= 4
-                and not any(char.isdigit() for char in line)
+                or "Page " in line
+                or "Department" in line
+                or "DAILY PRICE" in line
+                or "COMMODITY" in line
+                or "SPECIFICATION" in line
             ):
-                current_section = line
                 continue
 
-            # Pattern 1: Multiple spaces separator "Commodity Name  Price"
-            parts = re.split(r"\s{2,}", line)
-            if len(parts) >= 2:
-                commodity_part = parts[0].strip()
-                price_part = parts[-1].strip()
+            # Skip lines with "n/a" prices
+            if "n/a" in line.lower():
+                continue
 
+            # Main pattern: "Commodity Name, Specification    Price"
+            # Look for price at end (digits with optional decimals)
+            price_match = re.search(r"(\d+\.\d{2})\s*$", line)
+            if price_match:
+                price_str = price_match.group(1)
                 try:
-                    price = float(price_part)
+                    price = float(price_str)
                     if price > 0 and price < 10000:
+                        # Extract commodity name (everything before the price)
+                        commodity_part = line[: price_match.start()].strip()
+
+                        # Clean up the name
                         commodity_name = self._clean_commodity_name(commodity_part)
-                        if commodity_name:
-                            prices[commodity_name] = price
-                            continue
-                except ValueError:
-                    pass
-
-            # Pattern 2: "Commodity  Price" on same line
-            match = re.match(r"^([A-Za-z\s\(\)\-,/]+?)\s+(\d+\.?\d*)$", line)
-            if match:
-                commodity_name = self._clean_commodity_name(match.group(1))
-                try:
-                    price = float(match.group(2))
-                    if commodity_name and price > 0 and price < 10000:
-                        prices[commodity_name] = price
-                        continue
-                except ValueError:
-                    pass
-
-            # Pattern 3: With specification "Item Spec  Price"
-            match = re.match(
-                r"^([A-Za-z\s]+)\s+([A-Za-z\s\(\)\-,/0-9]+?)\s+(\d+\.?\d*)$", line
-            )
-            if match:
-                item = match.group(1).strip()
-                spec = match.group(2).strip()
-                try:
-                    price = float(match.group(3))
-                    if price > 0 and price < 10000:
-                        # Combine item and spec
-                        full_name = f"{item} ({spec})" if len(spec) < 30 else item
-                        commodity_name = self._clean_commodity_name(full_name)
                         if commodity_name:
                             prices[commodity_name] = price
                 except ValueError:
@@ -174,87 +150,34 @@ class DailyPriceIndexParser:
         return prices
 
     def _clean_commodity_name(self, name: str) -> Optional[str]:
-        """Clean and standardize commodity name - COMPREHENSIVE VERSION"""
+        """Clean and standardize commodity name"""
         name = name.strip()
 
-        # Skip if too short or contains unwanted keywords
+        # Skip if too short
+        if len(name) < 3:
+            return None
+
+        # Skip unwanted keywords
         skip_keywords = [
             "page",
-            "commodity",
-            "specification",
             "prevailing",
-            "retail",
-            "price",
+            "retail price",
             "department",
             "agriculture",
-            "national",
-            "capital",
-            "region",
-            "market",
             "table",
             "source",
-            "average",
-            "date",
             "prepared",
+            "national capital",
         ]
-        if any(kw in name.lower() for kw in skip_keywords):
+        name_lower = name.lower()
+        if any(kw in name_lower for kw in skip_keywords):
             return None
 
-        if len(name) < 2:
-            return None
+        # Remove trailing/leading special chars
+        name = re.sub(r"^[,\s\-]+", "", name)
+        name = re.sub(r"[,\s\-]+$", "", name)
 
-        # Remove common suffixes/prefixes that don't add value
-        name = re.sub(
-            r"\s+(local|imported|fresh|frozen|dried|sliced|whole|medium|large|small)\s*$",
-            "",
-            name,
-            flags=re.IGNORECASE,
-        )
-
-        # Standardize common names but preserve variations
-        name_map = {
-            # Rice variations
-            "Well Milled": "Well Milled Rice",
-            "Regular Milled": "Regular Milled Rice",
-            "Premium": "Premium Rice",
-            "Glutinous": "Glutinous Rice",
-            # Poultry
-            "Chicken Whole": "Chicken (Whole)",
-            "Chicken Breast": "Chicken Breast",
-            "Chicken Leg": "Chicken Leg",
-            "Egg Medium": "Egg (Medium)",
-            "Egg Large": "Egg (Large)",
-            "Egg Extra Large": "Egg (Extra Large)",
-            # Pork
-            "Pork Kasim": "Pork Kasim",
-            "Pork Liempo": "Pork Liempo",
-            "Pork Pigue": "Pork Pigue",
-            "Pork Ham": "Pork Ham",
-            # Beef
-            "Beef Brisket": "Beef Brisket",
-            "Beef Ribs": "Beef Ribs",
-            "Beef Shank": "Beef Shank",
-            # Fish
-            "Tilapia": "Tilapia",
-            "Bangus": "Bangus (Milkfish)",
-            "Galunggong": "Galunggong",
-            "Alumahan": "Alumahan",
-            "Tulingan": "Tulingan",
-            "Tambakol": "Tambakol (Yellowfin Tuna)",
-            "Dalagang Bukid": "Dalagang Bukid",
-            "Bisugo": "Bisugo",
-            "Maya-maya": "Maya-maya",
-            # Vegetables - preserve as is for variety
-            # Let specific items through
-        }
-
-        # Try to match standard names
-        for key, standard_name in name_map.items():
-            if key.lower() in name.lower():
-                return standard_name
-
-        # If not in map, return cleaned name
-        return name if len(name) > 2 else None
+        return name if len(name) >= 3 else None
 
     async def build_price_history(self, days: int = 7) -> Dict[str, List[Dict]]:
         """Build price history for commodities over multiple days"""
