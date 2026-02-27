@@ -214,8 +214,8 @@ class DailyPriceIndexParser:
         trends = {}
 
         for commodity, history in price_history.items():
-            if len(history) < 2:
-                continue
+            # Keep ALL commodities, even with single data point
+            # (removed filter: if len(history) < 2: continue)
 
             prices = [h["price"] for h in history]
             dates = [h["date"] for h in history]
@@ -230,7 +230,13 @@ class DailyPriceIndexParser:
                 trend_direction = (
                     "increasing" if recent_avg > older_avg else "decreasing"
                 )
+            elif len(prices) == 2:
+                # For 2 data points, compare directly
+                trend_direction = (
+                    "increasing" if prices[-1] > prices[0] else "decreasing"
+                )
             else:
+                # Single data point - mark as stable
                 trend_direction = "stable"
 
             # Calculate price change
