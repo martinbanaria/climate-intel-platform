@@ -105,79 +105,106 @@ class DailyPriceIndexParser:
             return ""
 
     def parse_prices(self, text: str) -> Dict[str, float]:
-        """Parse commodity prices from Daily Price Index text - COMPREHENSIVE VERSION"""
+        """Parse commodity prices from Daily Price Index text - ULTRA COMPREHENSIVE"""
         prices = {}
         lines = text.split("\n")
 
         for line in lines:
             line = line.strip()
-            if not line or len(line) < 5:
+            if not line or len(line) < 3:
                 continue
 
-            # Skip headers and non-data lines
-            if (
-                line.isupper()
-                or "Page " in line
-                or "Department" in line
-                or "DAILY PRICE" in line
-                or "COMMODITY" in line
-                or "SPECIFICATION" in line
-            ):
+            # Skip ONLY obvious headers (be less aggressive)
+            skip_patterns = [
+                "DAILY PRICE INDEX",
+                "DEPARTMENT OF AGRICULTURE",
+                "BANTAY PRESYO",
+                "PREVAILING RETAIL PRICE",
+                "NATIONAL CAPITAL REGION",
+                "Page ",
+                "Prepared by",
+                "Source:",
+            ]
+
+            if any(pattern in line for pattern in skip_patterns):
+                continue
+
+            # Skip if entire line is uppercase AND doesn't contain numbers
+            if line.isupper() and not re.search(r"\d", line):
                 continue
 
             # Skip lines with "n/a" prices
             if "n/a" in line.lower():
                 continue
 
-            # Main pattern: "Commodity Name, Specification    Price"
-            # Look for price at end (digits with optional decimals)
-            price_match = re.search(r"(\d+\.\d{2})\s*$", line)
-            if price_match:
-                price_str = price_match.group(1)
-                try:
-                    price = float(price_str)
-                    if price > 0 and price < 10000:
-                        # Extract commodity name (everything before the price)
-                        commodity_part = line[: price_match.start()].strip()
+            # MULTIPLE patterns to catch all price formats:
+            # Pattern 1: Standard "Name    123.45" (2 decimal places)
+            # Pattern 2: "Name    123.4" or "Name    123" (1 or 0 decimals)
+            # Pattern 3: "Name 123.45" (less whitespace)
 
-                        # Clean up the name
-                        commodity_name = self._clean_commodity_name(commodity_part)
-                        if commodity_name:
-                            prices[commodity_name] = price
-                except ValueError:
-                    pass
+            price_patterns = [
+                r"(\d+\.\d{2})\s*$",  # 123.45 at end
+                r"(\d+\.\d{1})\s*$",  # 123.4 at end
+                r"(\d+)\s*$",  # 123 at end (no decimal)
+            ]
+
+            matched = False
+            for pattern in price_patterns:
+                price_match = re.search(pattern, line)
+                if price_match:
+                    price_str = price_match.group(1)
+                    try:
+                        price = float(price_str)
+                        # Very permissive price range (0.50 to 50,000)
+                        if 0.5 <= price <= 50000:
+                            # Extract commodity name (everything before the price)
+                            commodity_part = line[: price_match.start()].strip()
+
+                            # Minimal cleaning - keep almost everything
+                            commodity_name = self._clean_commodity_name(commodity_part)
+                            if commodity_name and len(commodity_name) >= 2:
+                                prices[commodity_name] = price
+                                matched = True
+                                break
+                    except ValueError:
+                        pass
+
+                if matched:
+                    break
 
         return prices
 
     def _clean_commodity_name(self, name: str) -> Optional[str]:
-        """Clean and standardize commodity name"""
+        """Clean and standardize commodity name - MINIMAL filtering"""
         name = name.strip()
 
         # Skip if too short
-        if len(name) < 3:
+        if len(name) < 2:
             return None
 
-        # Skip unwanted keywords
+        # Only skip the most obvious non-commodity text
         skip_keywords = [
             "page",
             "prevailing",
             "retail price",
             "department",
-            "agriculture",
             "table",
             "source",
             "prepared",
-            "national capital",
         ]
         name_lower = name.lower()
-        if any(kw in name_lower for kw in skip_keywords):
-            return None
 
-        # Remove trailing/leading special chars
-        name = re.sub(r"^[,\s\-]+", "", name)
-        name = re.sub(r"[,\s\-]+$", "", name)
+        # Only skip if the ENTIRE name is just the keyword
+        for keyword in skip_keywords:
+            if name_lower == keyword or name_lower.startswith(keyword + " "):
+                return None
 
-        return name if len(name) >= 3 else None
+        # Remove trailing/leading special chars but keep commas inside
+        name = re.sub(r"^[,\s\-\.]+", "", name)
+        name = re.sub(r"[,\s\-\.]+$", "", name)
+
+        # Accept almost anything that's left
+        return name if len(name) >= 2 else None
 
     async def build_price_history(self, days: int = 7) -> Dict[str, List[Dict]]:
         """Build price history for commodities over multiple days"""
