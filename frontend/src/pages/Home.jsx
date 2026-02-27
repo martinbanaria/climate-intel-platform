@@ -31,6 +31,7 @@ const Home = () => {
   // Fetch market items when filters change
   useEffect(() => {
     fetchMarketItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory, searchQuery, sortBy]);
 
   const fetchCategories = async () => {
