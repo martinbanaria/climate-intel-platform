@@ -1,7 +1,7 @@
 fastapi==0.110.1
 uvicorn==0.25.0
 motor==3.3.1
-pymongo==4.5.0
+pymongo[srv]==4.5.0
 pydantic==2.12.5
 python-dotenv==1.2.1
 beautifulsoup4==4.14.3
@@ -18,3 +18,4 @@ python-dateutil==2.9.0.post0
 aiohttp==3.9.5
 pillow==10.4.0
 pytesseract==0.3.13
+certifi
