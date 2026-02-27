@@ -1,0 +1,15 @@
+# Render.com configuration for FastAPI backend
+
+# Build Command:
+# pip install -r requirements.txt
+
+# Start Command:
+# uvicorn server:app --host 0.0.0.0 --port $PORT
+
+# Environment Variables to set in Render dashboard:
+# - MONGO_URL: Your MongoDB Atlas connection string
+# - DB_NAME: climate_intel
+# - NEWSDATA_API_KEY: Your NewsData.io API key
+
+# Health Check Path: /api/
+# Instance Type: Free (or upgrade to Starter for always-on)

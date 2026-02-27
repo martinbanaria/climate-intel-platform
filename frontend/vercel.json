@@ -1,0 +1,10 @@
+# Vercel Configuration for Frontend
+
+# This file helps Vercel understand how to build and deploy the React app
+
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "build",
+  "framework": "create-react-app",
+  "installCommand": "npm install --legacy-peer-deps"
+}
