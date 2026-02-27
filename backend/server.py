@@ -28,9 +28,17 @@ load_dotenv(ROOT_DIR / ".env")
 
 # MongoDB connection with SSL fix for Render's Python/OpenSSL
 mongo_url = os.environ["MONGO_URL"]
-# Create a proper SSL context using certifi's CA bundle
-ssl_context = ssl.create_default_context(cafile=certifi.where())
-client = AsyncIOMotorClient(mongo_url, tls=True, tlsCAFile=certifi.where())
+# On Render, the default OpenSSL config can cause TLSV1_ALERT_INTERNAL_ERROR with
+# MongoDB Atlas. Fix: create a custom SSL context that uses TLSv1.2+ with certifi certs
+_ssl_context = ssl.create_default_context(cafile=certifi.where())
+_ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+client = AsyncIOMotorClient(
+    mongo_url,
+    tls=True,
+    tlsCAFile=certifi.where(),
+    serverSelectionTimeoutMS=30000,
+    connectTimeoutMS=30000,
+)
 db = client[os.environ["DB_NAME"]]
 
 # Create the main app without a prefix
@@ -53,6 +61,29 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+# ========== HEALTH/DIAGNOSTIC ENDPOINTS ==========
+
+
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint with MongoDB connection diagnostic"""
+    result = {
+        "status": "ok",
+        "python_version": os.popen("python3 --version").read().strip(),
+        "openssl_version": ssl.OPENSSL_VERSION,
+        "mongo_url_prefix": mongo_url[:30] + "...",
+        "certifi_ca": certifi.where(),
+    }
+    try:
+        # Test MongoDB connection
+        server_info = await client.server_info()
+        result["mongodb"] = "connected"
+        result["mongodb_version"] = server_info.get("version", "unknown")
+    except Exception as e:
+        result["mongodb"] = f"error: {str(e)[:200]}"
+    return result
 
 
 # ========== MARKET ITEMS ENDPOINTS ==========
