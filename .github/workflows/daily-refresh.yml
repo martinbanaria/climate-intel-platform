@@ -22,17 +22,20 @@ jobs:
     steps:
       - name: Wake up Render backend
         # Render free tier sleeps after 15 min — ping health first and wait for cold start
+        # curl exit code 28 = timeout, which is expected during cold start; don't fail the step
         run: |
           echo "Pinging backend to wake it from sleep..."
-          for i in 1 2 3 4 5; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://climate-intel-api.onrender.com/api/health)
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+              https://climate-intel-api.onrender.com/api/health 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "Backend is awake (attempt $i)"
-              break
+              exit 0
             fi
-            echo "Attempt $i: status=$STATUS, waiting 15s..."
-            sleep 15
+            echo "Attempt $i/6: status=$STATUS, waiting 20s..."
+            sleep 20
           done
+          echo "::warning::Backend did not respond after all attempts — proceeding anyway"
 
       - name: Trigger DA Bantay Presyo integration
         # Downloads today's price PDF and updates MongoDB
