@@ -73,6 +73,42 @@ jobs:
             echo "::warning::Comprehensive integration returned: $RESPONSE"
           fi
 
+      - name: Update climate metrics from WeatherAPI
+        # Fetches live weather for Manila and updates climate_metrics collection
+        run: |
+          echo "Updating climate metrics from WeatherAPI..."
+          RESPONSE=$(curl -s -X POST \
+            --max-time 30 \
+            -H "Content-Type: application/json" \
+            https://climate-intel-api.onrender.com/api/integration/run-weather-update)
+          echo "Response: $RESPONSE"
+
+          SUCCESS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)
+          if [ "$SUCCESS" = "True" ]; then
+            COUNT=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('metrics_updated', 'unknown'))" 2>/dev/null)
+            echo "Climate metrics updated — $COUNT metrics refreshed"
+          else
+            echo "::warning::Weather update returned: $RESPONSE"
+          fi
+
+      - name: Update DOE issuances
+        # Scrapes DOE website for Department Circulars, Orders, etc.
+        run: |
+          echo "Updating DOE issuances..."
+          RESPONSE=$(curl -s -X POST \
+            --max-time 60 \
+            -H "Content-Type: application/json" \
+            https://climate-intel-api.onrender.com/api/integration/run-doe-update)
+          echo "Response: $RESPONSE"
+
+          SUCCESS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)
+          if [ "$SUCCESS" = "True" ]; then
+            COUNT=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('issuances_updated', 'unknown'))" 2>/dev/null)
+            echo "DOE issuances updated — $COUNT items refreshed"
+          else
+            echo "::warning::DOE update returned: $RESPONSE"
+          fi
+
       - name: Verify data freshness
         # Confirm the integration actually updated the database
         run: |

@@ -24,6 +24,8 @@ from services.newsdata_integration import news_integration
 from services.doe_document_scraper import doe_scraper
 from services.energy_grid_scraper import wesm_scraper
 from services.ngcp_scraper import ngcp_scraper
+from services.weather_integration import run_weather_update
+from services.doe_integration import run_doe_update
 from models import MarketItem, ClimateMetric, ScrapedDocument, AnalyticsInsight
 
 ROOT_DIR = Path(__file__).parent
@@ -571,6 +573,30 @@ async def run_comprehensive_integration(days: int = 7):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.post("/integration/run-weather-update")
+async def run_weather_update_endpoint():
+    """Fetch live weather from WeatherAPI.com and update climate_metrics in MongoDB."""
+    try:
+        result = await run_weather_update(db)
+        status_code = 200 if result.get("success") else 500
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:
+        logger.error(f"Error in weather update: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/integration/run-doe-update")
+async def run_doe_update_endpoint():
+    """Fetch real DOE issuances and upsert to MongoDB doe_circulars collection."""
+    try:
+        result = await run_doe_update(db)
+        status_code = 200 if result.get("success") else 500
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:
+        logger.error(f"Error in DOE update: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.post("/integration/run-realistic-data")
 async def run_realistic_integration():
     """Integrate realistic price data based on actual NCR patterns"""
@@ -683,9 +709,18 @@ async def get_multiple_energy_news():
 
 @api_router.get("/energy/doe-circulars")
 async def get_doe_circulars():
-    """Get DOE circulars and orders"""
+    """Get DOE circulars and orders from MongoDB (populated by run-doe-update)"""
     try:
-        circulars = await doe_scraper.scrape_doe_circulars()
+        cursor = db.doe_circulars.find(
+            {}, {"_id": 0}
+        ).sort("date_published", -1).limit(20)
+        circulars = await cursor.to_list(length=20)
+
+        if not circulars:
+            # Fallback to live scrape if MongoDB is empty
+            from services.doe_integration import fetch_doe_issuances
+            circulars = await fetch_doe_issuances()
+
         return JSONResponse(
             {"success": True, "count": len(circulars), "data": circulars}
         )

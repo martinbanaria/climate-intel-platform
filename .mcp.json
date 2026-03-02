@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "mcp-fetch"],
+      "description": "HTTP fetch — probe DOE/ERC APIs, WeatherAPI, IEMOP during development"
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp"],
+      "description": "Browser automation — inspect JS-heavy SPAs like DOE/ERC for scraper development"
+    },
+    "mongodb": {
+      "command": "npx",
+      "args": ["-y", "mongodb-mcp-server"],
+      "env": {
+        "MDB_MCP_CONNECTION_STRING": "mongodb+srv://climateintel_admin:Sv5sVFw7gdHtydlq@climate-intel.q1jjn3g.mongodb.net/climate_intel?appName=climate-intel"
+      },
+      "description": "Direct MongoDB Atlas access — query market_items, climate_metrics, doe_circulars, etc."
+    }
+  }
+}

@@ -14,27 +14,29 @@ Climate-Smart Market Intelligence Platform for the Philippines.
 | Backend | FastAPI (Python 3.9), Motor (async MongoDB) |
 | Database | MongoDB Atlas (Singapore region) |
 | Deployment | Render.com (backend), Vercel (frontend) |
-| Scheduler | GitHub Actions cron (NOT scheduler.py — see below) |
+| Scheduler | GitHub Actions cron (NOT scheduler.py) |
 
 ## URLs
 - Frontend (prod): https://frontend-qxb1lmjh3-martin-banarias-projects.vercel.app
 - Backend (prod): https://climate-intel-api.onrender.com
 - GitHub: https://github.com/martinbanaria/climate-intel-platform
-- MongoDB: mongodb+srv://climateintel_admin@climate-intel.q1jjn3g.mongodb.net/
+- MongoDB: `mongodb+srv://climateintel_admin:Sv5sVFw7gdHtydlq@climate-intel.q1jjn3g.mongodb.net/?appName=climate-intel`
 
 ## Key Files
 ```
 backend/
   server.py                          # All API endpoints
-  scheduler.py                       # DO NOT RELY ON — Render free tier sleeps, kills it
+  scheduler.py                       # DO NOT USE — Render free tier sleeps, kills it
   services/
     daily_price_parser.py            # DA Bantay Presyo daily PDF downloader/parser (WORKING)
     real_data_integration.py         # /run-da-bantay-presyo endpoint service (FIXED)
     comprehensive_real_data.py       # 7-day history builder using daily_price_parser (WORKING)
+    weather_integration.py           # NEW — WeatherAPI.com -> climate_metrics MongoDB (WORKING)
     newsdata_integration.py          # Real energy news via NewsData.io API (WORKING)
     energy_grid_scraper.py           # IEMOP WESM price scraper (REAL, 1-hr cache)
     ngcp_scraper.py                  # NGCP grid MW Playwright scraper (REAL, 30-min cache)
-    doe_document_scraper.py          # DOE circulars + PPA — STILL HARDCODED MOCK DATA
+    doe_integration.py               # NEW — real DOE issuances via SSR scrape -> MongoDB
+    doe_document_scraper.py          # Legacy mock PPA data (ERC blocked by Cloudflare)
     doe_fuel_integration.py          # DOE fuel price scraper
     web_crawler.py                   # Generic async scraper (BeautifulSoup)
     ocr_service.py                   # PyPDF2 + PyTesseract
@@ -42,24 +44,29 @@ backend/
 frontend/src/
   pages/Dashboard.jsx                # Overview: market analytics + climate events + grid
   pages/EnergyIntelligence.jsx       # Energy grid/WESM/PPAs/news page
-  pages/ClimateImpact.jsx            # Climate metrics page (mostly mock data)
+  pages/ClimateImpact.jsx            # Climate metrics page (real WeatherAPI data now)
   pages/Commodities.jsx              # Commodity price table
   pages/Analytics.jsx                # Market analytics dashboard
-  pages/Forecasts.jsx                # Price forecasts (uses real market + mock climate)
-  pages/Watchlist.jsx                # User watchlist (real market data)
+  pages/Forecasts.jsx                # Price forecasts
+  pages/Watchlist.jsx                # User watchlist
   api/index.js                       # All Axios API calls
 
 .github/workflows/daily-refresh.yml  # Automated daily data refresh (ACTIVE)
+climate_intel.mongodb.js             # MongoDB playground queries (dev tool)
+.mcp.json                            # MCP config for Claude Code CLI (fetch + playwright + mongodb)
+.vscode/mcp.json                     # MCP config for VS Code Copilot Chat (fetch + playwright)
+.vscode/settings.json                # python.terminal.useEnvFile: true
 ```
 
 ## Auto-Update Architecture (as of March 2026)
-`scheduler.py` is NOT used in production — Render free tier sleeps after 15 min.
+`scheduler.py` is NOT used — Render free tier sleeps after 15 min.
 
-**GitHub Actions** runs `.github/workflows/daily-refresh.yml` every weekday at 8 AM Manila time (00:00 UTC):
-1. Wakes Render backend (6 retries × 60s)
-2. POSTs `/api/integration/run-da-bantay-presyo` — downloads today's DA PDF → updates prices
-3. POSTs `/api/integration/run-comprehensive-real-data?days=7` — rebuilds 7-day trend history
-4. GETs `/api/integration/status` — verifies freshness
+**GitHub Actions** runs `daily-refresh.yml` every weekday at 8 AM Manila time (00:00 UTC):
+1. Wakes Render backend (6 retries x 60s)
+2. POSTs `/api/integration/run-da-bantay-presyo`
+3. POSTs `/api/integration/run-comprehensive-real-data?days=7`
+4. POSTs `/api/integration/run-weather-update`
+5. GETs `/api/integration/status`
 
 ## DA Bantay Presyo PDF URLs
 Two patterns tried (both in `daily_price_parser.py` and `real_data_integration.py`):
@@ -70,116 +77,139 @@ https://www.da.gov.ph/wp-content/uploads/{year}/{month:02d}/{Month}-{day}-{year}
 DA only publishes on weekdays. Skip weekends in all downloaders.
 
 ## Key Bugs Fixed (March 2026)
-1. **real_data_integration.py** — was trying weekly average PDF URLs (never available). Fixed to daily PDFs.
-2. **real_data_integration.py** — `'\\n'` (literal backslash-n) used instead of `'\n'`. Fixed.
-3. **real_data_integration.py** — regex raw strings had `\\s`, `\\d` (literal) instead of `\s`, `\d`. Fixed.
-4. **GitHub Actions cold-start** — curl timed out on 30s. Fixed to 60s max-time with 6 retries.
+1. `real_data_integration.py` — was trying weekly PDF URLs. Fixed to daily.
+2. `real_data_integration.py` — literal backslash-n instead of newline. Fixed.
+3. `real_data_integration.py` — regex raw strings double-escaped. Fixed.
+4. GitHub Actions cold-start — curl timed out at 30s. Fixed to 60s with 6 retries.
 
 ---
 
 ## Real vs Mock Data Audit (March 2026)
 
-### ✅ REAL DATA (live scraped / API-fetched)
+### REAL DATA
 
-| What | Source | Endpoint | Notes |
-|------|--------|----------|-------|
-| 215+ commodity prices | DA Bantay Presyo PDFs | `GET /api/market-items` | Updated daily via GitHub Actions |
-| Commodity 7-day price trends | DA Bantay Presyo PDFs | `GET /api/analytics/price-trends` | Built by `comprehensive_real_data.py` |
-| MURA/MAHAL/STABLE labels | Computed from real prices | `GET /api/analytics/market-analytics` | `analytics_engine.py` runs on real MongoDB |
-| Market price alerts | Computed from real trends | included in market-analytics | Real % change vs previous day |
-| WESM electricity prices (₱/MWh) | IEMOP `MP_YYYYMMDD.csv` | `GET /api/energy/analytics` → `price_trends` | Luzon/Visayas/Mindanao; 1-hr cache; 7-day trend |
-| Grid overall status (STABLE/ELEVATED/TIGHT) | Derived from Luzon WESM price | `GET /api/energy/grid-status` → `status` | >₱8k=TIGHT, >₱6k=ELEVATED |
-| Grid MW (demand, supply, margin) | NGCP homepage Playwright scrape | `GET /api/energy/grid-status` | `ngcp_scraper.py`; 30-min cache; Playwright+stealth |
-| Per-region grid MW (Luzon/Visayas/Mindanao) | NGCP Power Situation Outlook table | inside grid-status response | Available Generating Capacity + System Peak Demand + Operating Margin |
-| Energy news articles | NewsData.io API | `GET /api/energy/news` | Free tier: 200 calls/day |
-| Watchlist items | Real market data from MongoDB | frontend state only | No backend changes needed |
+| What | Source | Endpoint |
+|------|--------|----------|
+| 215+ commodity prices | DA Bantay Presyo PDFs | `GET /api/market-items` |
+| 7-day price trends | DA Bantay Presyo PDFs | `GET /api/analytics/price-trends` |
+| MURA/MAHAL/STABLE labels | Computed from real prices | `GET /api/analytics/market-analytics` |
+| WESM electricity prices (PHP/MWh) | IEMOP MP_YYYYMMDD.csv | `GET /api/energy/analytics` |
+| Grid status (STABLE/ELEVATED/TIGHT) | Derived from Luzon WESM | `GET /api/energy/grid-status` |
+| Grid MW per region | NGCP Playwright scrape | `GET /api/energy/grid-status` |
+| Energy news | NewsData.io API | `GET /api/energy/news` |
+| Climate metrics (8 metrics) | WeatherAPI.com — FIXED Mar 2026 | `GET /api/climate-metrics` |
+| DOE Issuances (circulars, orders) | doe.gov.ph SSR scrape — NEW Mar 2026 | `GET /api/energy/doe-circulars` |
 
-### ❌ MOCK / HARDCODED DATA
+### MOCK / HARDCODED DATA
 
-| What | Where | Endpoint | Notes |
-|------|-------|----------|-------|
-| Climate metrics (temperature, rainfall, humidity, etc.) | MongoDB `climate_metrics` collection seeded with fake values | `GET /api/climate-metrics` | No real weather scraper exists. PAGASA scraper placeholder in `web_crawler.py` does not actually parse. |
-| "Key Market Impact Insights" text | Hardcoded in `ClimateImpact.jsx` (~lines 144–148) | ClimateImpact page | Static JSX, never changes regardless of actual weather |
-| DOE Circulars | 2 fake entries hardcoded in `doe_document_scraper.scrape_doe_circulars()` | `GET /api/energy/doe-circulars` | Returns fake DC2026-02-001, DO2026-01 |
-| PPA (Power Purchase Agreements) | 3 fake PPAs hardcoded in `doe_document_scraper.scrape_ppa_statuses()` | `GET /api/energy/ppa-status` | Fake Solar PH Nueva Ecija, Luzon Wind Farm, Mindanao Geothermal |
-| PPA analytics summary | Derived from 3 fake PPAs | `GET /api/energy/analytics` → `ppa_summary` + `technology_breakdown` | Counts/capacities are meaningless |
-| Energy market outlook | Hardcoded static strings in `server.py` | `GET /api/energy/analytics` → `market_outlook` | `short_term`, `supply_adequacy`, `price_forecast`, `key_drivers` — never change |
-
-### ⚠️ SEMI-REAL (algorithm is real, but some inputs are mock)
-
-| What | Real part | Mock input | Impact |
-|------|-----------|------------|--------|
-| Climate correlations | Correlation algorithm in `analytics_engine.py` | `climate_metrics` from MongoDB (mock) | Correlation output is meaningless |
-| Price predictions | Heuristic engine in `analytics_engine.py` | Uses real price trends | Reasonably useful but not ML-based |
-| Dashboard critical events | Builds events from all data | Climate warnings come from mock data | Market price events are real; climate events are fake |
-| Forecasts page | Renders market analytics (real) + energy analytics (real WESM) | Climate input from mock collection | Price forecasts partially meaningful |
+| What | File | Endpoint |
+|------|------|----------|
+| PPA status | `doe_document_scraper.scrape_ppa_statuses()` | `GET /api/energy/ppa-status` |
+| PPA analytics summary | derived from fake PPAs | `GET /api/energy/analytics` (ppa_summary) |
+| Energy market outlook | hardcoded strings in `server.py` | `GET /api/energy/analytics` (market_outlook) |
+| ClimateImpact key insights text | `ClimateImpact.jsx` lines 144-148 | frontend only |
 
 ---
 
 ## API Endpoints Reference
 ```
-GET  /api/market-items               # ✅ REAL — 215+ commodities from DA PDFs
-GET  /api/best-deals                 # ✅ REAL — Top MURA items by savings
-GET  /api/analytics/market-analytics # ✅ REAL — Computed from live MongoDB data
-GET  /api/analytics/price-trends     # ✅ REAL — 7-day history from DA PDFs
-GET  /api/analytics/climate-correlations  # ⚠️ algorithm real, climate data mock
-GET  /api/analytics/buying-opportunities  # ✅ REAL — computed from real prices
-GET  /api/analytics/predict/{item_id}     # ⚠️ heuristic, not ML model
-POST /api/integration/run-da-bantay-presyo          # Trigger today's PDF refresh
-POST /api/integration/run-comprehensive-real-data   # Rebuild 7-day history
-GET  /api/integration/status         # Last update timestamp + item count
-GET  /api/energy/grid-status         # ✅ REAL — NGCP Playwright scraper (30-min cache)
-GET  /api/energy/analytics           # ✅ REAL prices — ❌ PPA data still mock
-GET  /api/energy/news                # ✅ REAL — NewsData.io
-GET  /api/energy/doe-circulars       # ❌ MOCK — 2 hardcoded fake circulars
-GET  /api/energy/ppa-status          # ❌ MOCK — 3 hardcoded fake PPAs
-GET  /api/climate-metrics            # ❌ MOCK — seeded MongoDB, no weather scraper
+GET  /api/market-items
+GET  /api/best-deals
+GET  /api/analytics/market-analytics
+GET  /api/analytics/price-trends
+GET  /api/analytics/climate-correlations
+GET  /api/analytics/buying-opportunities
+GET  /api/analytics/predict/{item_id}
+POST /api/integration/run-da-bantay-presyo
+POST /api/integration/run-comprehensive-real-data
+POST /api/integration/run-weather-update          # NEW
+GET  /api/integration/status
+GET  /api/energy/grid-status
+GET  /api/energy/analytics
+GET  /api/energy/news
+POST /api/integration/run-doe-update           # NEW — scrape DOE issuances
+GET  /api/energy/doe-circulars    # REAL — doe.gov.ph SSR scrape (was mock)
+GET  /api/energy/ppa-status       # MOCK — ERC blocked by Cloudflare
+GET  /api/climate-metrics         # REAL — WeatherAPI.com
 ```
 
-## What's Still Mocked (Next To Fix)
-Priority order for remaining mock data:
+## WeatherAPI Integration (completed March 2026)
+- Service: `backend/services/weather_integration.py`
+- API key: `WEATHERAPI_KEY=dc16d669a7514585854151245260203`
+- Manila coords: 14.5995 N, 120.9842 E — fetches `current.json?aqi=yes`
+- 8 metrics upserted to `climate_metrics` MongoDB collection:
+  - Temperature (C), Humidity (%), Rainfall (mm), UV Index
+  - Air Quality Index (PM2.5 ug/m3), Wind Speed (km/h)
+  - Soil Moisture (derived: humidity*0.6 + rainfall*0.4 scaled)
+  - Drought Index (derived: inverse of soil moisture)
+- Each doc: `{metric_name, value, unit, status, trend: [7 values], last_updated}`
+- Confirmed working: returns `{"success": true, "metrics_updated": 8}`
 
-1. **Climate Metrics** — biggest gap; ClimateImpact page is entirely fake
-   - Need: PAGASA weather scraper (pagasa.dost.gov.ph) — HTML scraping or OpenMeteo API
-   - OpenMeteo (open-meteo.com) is free, no auth needed, JSON API for PH coordinates
-   - Would replace `climate_metrics` MongoDB collection with live data
+---
 
-2. **DOE Circulars** — need real scraping of doe.gov.ph
-   - Structure exists in `doe_document_scraper.py`; just needs real HTTP scraping
+## DOE Issuances Integration (completed March 2026)
+- Service: `backend/services/doe_integration.py`
+- DOE site is a Nuxt.js SPA with SSR — aiohttp fetches the rendered HTML
+- Parses article cards with BeautifulSoup (h1 titles, time dates, p content, a attachments)
+- `__NUXT__` JS extraction attempted first but falls back to HTML parsing (more reliable)
+- Fetches from: `doe.gov.ph/articles/group/laws-and-issuances?category=Issuances&display_type=Card`
+- Covers: Department Circulars, Department Orders, Memorandum Circulars, Special Orders, etc.
+- Upserts to `doe_circulars` MongoDB collection by `doe_id`
+- Each doc: `{doe_id, circular_number, title, category, summary, date_published, url, attachments[], scraped_at}`
+- GitHub Actions step added after weather-update: `POST /api/integration/run-doe-update`
 
-3. **PPA Status** — need real data from DOE or ERC
-   - DOE has PPA registry on website; needs scraping
+### ERC PSA — NOT viable (March 2026)
+- `erc.gov.ph` behind Cloudflare interactive challenge (403)
+- Both aiohttp and Playwright blocked — cannot scrape
+- PPA status endpoint remains mock data from `doe_document_scraper.py`
 
-4. **Energy Market Outlook** — can be derived from real WESM data
-   - Currently `short_term`, `supply_adequacy`, `price_forecast` are hardcoded strings in server.py
+---
 
 ## Roadmap (In Priority Order)
 - [x] A — GitHub Actions daily auto-refresh
 - [x] B — Fix DA Bantay Presyo integration (3 bugs)
 - [x] C — Replace mocked grid status + WESM prices with real scraped data
-- [ ] D — "Cheapest Grocery Basket" feature (most unique/viral)
+- [x] F — Replace mock climate metrics with real WeatherAPI data
+- [x] G — Real DOE circulars (ERC blocked by Cloudflare; PPA stays mock)
+- [ ] D — Cheapest Grocery Basket feature (most unique/viral)
 - [ ] E — Telegram/Viber bot for daily price alerts
-- [ ] F — Replace mock climate metrics with real weather data (OpenMeteo or PAGASA)
-- [ ] G — Real DOE circulars and PPA data scraping
 - [ ] H — Multi-year historical price archive from DA archives
-- [ ] I — Crowdsourced "actual vs official" price reporting
+- [ ] I — Crowdsourced actual vs official price reporting
 
 ## Environment Variables
 ```
 # backend/.env
-MONGO_URL=mongodb+srv://climateintel_admin:***@climate-intel.q1jjn3g.mongodb.net/
+MONGO_URL=mongodb+srv://climateintel_admin:Sv5sVFw7gdHtydlq@climate-intel.q1jjn3g.mongodb.net/
 DB_NAME=climate_intel
 NEWSDATA_API_KEY=pub_5e23e133f8f142d6b24fc32045eeb421
+WEATHERAPI_KEY=dc16d669a7514585854151245260203
 
 # frontend/.env.production
 REACT_APP_BACKEND_URL=https://climate-intel-api.onrender.com
 ```
 
+## Dev Tooling (Local)
+- `.vscode/settings.json` — `python.terminal.useEnvFile: true` auto-injects `backend/.env`
+- `climate_intel.mongodb.js` — MongoDB playground at project root for querying Atlas directly
+
+## MCP Server Config
+Two separate config files depending on which agent/tool you're using:
+
+**Claude Code CLI** (opencode / `claude` command) — reads `.mcp.json` in project root:
+- File: `.mcp.json` (project root)
+- Servers: `fetch` (mcp-fetch via npx), `playwright` (@playwright/mcp via npx), `mongodb` (@modelcontextprotocol/server-mongodb)
+- MongoDB MCP connects directly to Atlas with full connection string
+
+**VS Code Copilot Chat** — reads `.vscode/mcp.json`:
+- File: `.vscode/mcp.json`
+- Servers: `fetch` + `playwright` (same packages, no MongoDB since it's provided by VS Code extension)
+
+Both files are committed to the repo. If MCP servers show as not configured in Claude Code, check that `.mcp.json` exists at project root and run `claude mcp list` to verify.
+
 ## Render Deployment Notes
 - Free tier: sleeps after 15 min inactivity, ~30-60s cold start
 - Auto-deploys on push to main branch
-- Region: Singapore (closest to Philippines)
+- Region: Singapore
 - Build: `pip install -r requirements.txt && python -m playwright install chromium --with-deps`
 - Start: `uvicorn backend.server:app --host 0.0.0.0 --port $PORT`
-- Chromium (for NGCP scraper) installed at build time via playwright
-- First NGCP scrape per cold start: ~15-20s (Chromium launch); cached for 30 min after
+- First NGCP scrape per cold start: ~15-20s (Chromium launch); cached 30 min after
