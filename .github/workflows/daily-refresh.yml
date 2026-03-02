@@ -93,12 +93,13 @@ jobs:
 
       - name: Update DOE issuances
         # Scrapes DOE website for Department Circulars, Orders, etc.
+        # Paginates through 4 subcategories × 5 pages each with rate limiting (~180s)
         run: |
-          echo "Updating DOE issuances..."
+          echo "Updating DOE issuances (incremental — 4 subcategories × 5 pages)..."
           RESPONSE=$(curl -s -X POST \
-            --max-time 60 \
+            --max-time 180 \
             -H "Content-Type: application/json" \
-            https://climate-intel-api.onrender.com/api/integration/run-doe-update)
+            "https://climate-intel-api.onrender.com/api/integration/run-doe-update")
           echo "Response: $RESPONSE"
 
           SUCCESS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)

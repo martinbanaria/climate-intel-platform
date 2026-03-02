@@ -152,11 +152,15 @@ GET  /api/climate-metrics         # REAL — WeatherAPI.com
 - DOE site is a Nuxt.js SPA with SSR — aiohttp fetches the rendered HTML
 - Parses article cards with BeautifulSoup (h1 titles, time dates, p content, a attachments)
 - `__NUXT__` JS extraction attempted first but falls back to HTML parsing (more reliable)
-- Fetches from: `doe.gov.ph/articles/group/laws-and-issuances?category=Issuances&display_type=Card`
-- Covers: Department Circulars, Department Orders, Memorandum Circulars, Special Orders, etc.
+- Fetches from: `doe.gov.ph/articles/group/laws-and-issuances?subcategory=Department+Circular&display_type=Card`
+- All subcategory URLs return the same article listing (subcategory filter is cosmetic in SSR) — only one URL needed
+- Pagination: 137 pages × 4 items/page = ~548 issuances. Max page detected from `<select>` combobox in HTML
+- Two modes: incremental (default, 5 pages = ~20 items) and full backfill (`?full=true`, all 137 pages)
+- Rate limiting: 1.5s delay between page fetches
+- Covers: Department Circulars, Department Orders, Memorandum Circulars, Special Orders, Implementing Guidelines, Joint Circulars, etc.
 - Upserts to `doe_circulars` MongoDB collection by `doe_id`
 - Each doc: `{doe_id, circular_number, title, category, summary, date_published, url, attachments[], scraped_at}`
-- GitHub Actions step added after weather-update: `POST /api/integration/run-doe-update`
+- GitHub Actions step added after weather-update: `POST /api/integration/run-doe-update` (180s timeout)
 
 ### ERC PSA — NOT viable (March 2026)
 - `erc.gov.ph` behind Cloudflare interactive challenge (403)

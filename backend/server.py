@@ -586,10 +586,15 @@ async def run_weather_update_endpoint():
 
 
 @api_router.post("/integration/run-doe-update")
-async def run_doe_update_endpoint():
+async def run_doe_update_endpoint(
+    full: bool = Query(
+        False,
+        description="If true, backfill ALL pages (500+ issuances). Default: incremental (first 5 pages per subcategory).",
+    ),
+):
     """Fetch real DOE issuances and upsert to MongoDB doe_circulars collection."""
     try:
-        result = await run_doe_update(db)
+        result = await run_doe_update(db, full=full)
         status_code = 200 if result.get("success") else 500
         return JSONResponse(result, status_code=status_code)
     except Exception as e:
@@ -711,14 +716,15 @@ async def get_multiple_energy_news():
 async def get_doe_circulars():
     """Get DOE circulars and orders from MongoDB (populated by run-doe-update)"""
     try:
-        cursor = db.doe_circulars.find(
-            {}, {"_id": 0}
-        ).sort("date_published", -1).limit(20)
+        cursor = (
+            db.doe_circulars.find({}, {"_id": 0}).sort("date_published", -1).limit(20)
+        )
         circulars = await cursor.to_list(length=20)
 
         if not circulars:
             # Fallback to live scrape if MongoDB is empty
             from services.doe_integration import fetch_doe_issuances
+
             circulars = await fetch_doe_issuances()
 
         return JSONResponse(
@@ -784,9 +790,24 @@ async def get_grid_status():
                 "timestamp": datetime.utcnow().isoformat(),
                 "data_source": "Status from IEMOP WESM prices; MW data unavailable (NGCP unreachable)",
                 "grids": [
-                    {"name": "Luzon",    "status": overall_status, "capacity": None, "current": None},
-                    {"name": "Visayas",  "status": "NORMAL",        "capacity": None, "current": None},
-                    {"name": "Mindanao", "status": "NORMAL",        "capacity": None, "current": None},
+                    {
+                        "name": "Luzon",
+                        "status": overall_status,
+                        "capacity": None,
+                        "current": None,
+                    },
+                    {
+                        "name": "Visayas",
+                        "status": "NORMAL",
+                        "capacity": None,
+                        "current": None,
+                    },
+                    {
+                        "name": "Mindanao",
+                        "status": "NORMAL",
+                        "capacity": None,
+                        "current": None,
+                    },
                 ],
             }
 
@@ -805,18 +826,34 @@ def _build_price_alerts(price_trends: dict) -> list:
         change = data.get("change_pct", 0)
         current = data.get("current", 0)
         if current > 8000:
-            alerts.append({"type": "price", "severity": "high",
-                           "message": f"{region} prices critically high at ₱{current:,}/MWh",
-                           "timestamp": now})
+            alerts.append(
+                {
+                    "type": "price",
+                    "severity": "high",
+                    "message": f"{region} prices critically high at ₱{current:,}/MWh",
+                    "timestamp": now,
+                }
+            )
         elif abs(change) >= 5:
             direction = "up" if change > 0 else "down"
             severity = "medium" if abs(change) >= 5 else "low"
-            alerts.append({"type": "price", "severity": severity,
-                           "message": f"{region} prices {direction} {abs(change):.1f}% this week",
-                           "timestamp": now})
+            alerts.append(
+                {
+                    "type": "price",
+                    "severity": severity,
+                    "message": f"{region} prices {direction} {abs(change):.1f}% this week",
+                    "timestamp": now,
+                }
+            )
     if not alerts:
-        alerts.append({"type": "price", "severity": "low",
-                       "message": "WESM prices stable across all regions", "timestamp": now})
+        alerts.append(
+            {
+                "type": "price",
+                "severity": "low",
+                "message": "WESM prices stable across all regions",
+                "timestamp": now,
+            }
+        )
     return alerts
 
 
@@ -846,15 +883,30 @@ async def get_energy_analytics():
 
         # Price trends — real data from IEMOP, fallback to static estimates
         PRICE_TRENDS_FALLBACK = {
-            "wesm_luzon":    {"current": 5842, "week_ago": 5398, "month_ago": 5125,
-                              "trend": [5125, 5234, 5398, 5567, 5712, 5842], "change_pct": 8.2,
-                              "source": "estimated"},
-            "wesm_visayas":  {"current": 6123, "week_ago": 5890, "month_ago": 5678,
-                              "trend": [5678, 5789, 5890, 5987, 6045, 6123], "change_pct": 7.8,
-                              "source": "estimated"},
-            "wesm_mindanao": {"current": 4567, "week_ago": 4432, "month_ago": 4298,
-                              "trend": [4298, 4356, 4432, 4487, 4523, 4567], "change_pct": 6.3,
-                              "source": "estimated"},
+            "wesm_luzon": {
+                "current": 5842,
+                "week_ago": 5398,
+                "month_ago": 5125,
+                "trend": [5125, 5234, 5398, 5567, 5712, 5842],
+                "change_pct": 8.2,
+                "source": "estimated",
+            },
+            "wesm_visayas": {
+                "current": 6123,
+                "week_ago": 5890,
+                "month_ago": 5678,
+                "trend": [5678, 5789, 5890, 5987, 6045, 6123],
+                "change_pct": 7.8,
+                "source": "estimated",
+            },
+            "wesm_mindanao": {
+                "current": 4567,
+                "week_ago": 4432,
+                "month_ago": 4298,
+                "trend": [4298, 4356, 4432, 4487, 4523, 4567],
+                "change_pct": 6.3,
+                "source": "estimated",
+            },
         }
         price_trends = await wesm_scraper.fetch_price_trends(days=7)
         if not price_trends:
