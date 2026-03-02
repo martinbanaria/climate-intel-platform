@@ -145,24 +145,30 @@ const EnergyIntelligence = () => {
                 <Card className="bg-slate-800 border-slate-700 p-6" data-testid="demand-card">
                   <p className="text-sm text-gray-400 mb-2">Total Demand</p>
                   <div className="flex items-baseline space-x-2">
-                    <span className="text-3xl font-bold text-white">{gridStatus.total_demand?.toLocaleString()}</span>
-                    <span className="text-lg text-gray-400">MW</span>
+                    {gridStatus.total_demand != null
+                      ? <><span className="text-3xl font-bold text-white">{gridStatus.total_demand.toLocaleString()}</span><span className="text-lg text-gray-400">MW</span></>
+                      : <span className="text-lg text-gray-500">N/A — NGCP data unavailable</span>
+                    }
                   </div>
                 </Card>
 
                 <Card className="bg-slate-800 border-slate-700 p-6" data-testid="supply-card">
                   <p className="text-sm text-gray-400 mb-2">Total Supply</p>
                   <div className="flex items-baseline space-x-2">
-                    <span className="text-3xl font-bold text-white">{gridStatus.total_supply?.toLocaleString()}</span>
-                    <span className="text-lg text-gray-400">MW</span>
+                    {gridStatus.total_supply != null
+                      ? <><span className="text-3xl font-bold text-white">{gridStatus.total_supply.toLocaleString()}</span><span className="text-lg text-gray-400">MW</span></>
+                      : <span className="text-lg text-gray-500">N/A — NGCP data unavailable</span>
+                    }
                   </div>
                 </Card>
 
                 <Card className="bg-slate-800 border-slate-700 p-6" data-testid="reserves-card">
                   <p className="text-sm text-gray-400 mb-2">Reserves</p>
                   <div className="flex items-baseline space-x-2">
-                    <span className="text-3xl font-bold text-white">{gridStatus.reserves}</span>
-                    <span className="text-lg text-gray-400">MW</span>
+                    {gridStatus.reserves != null
+                      ? <><span className="text-3xl font-bold text-white">{gridStatus.reserves.toLocaleString()}</span><span className="text-lg text-gray-400">MW</span></>
+                      : <span className="text-lg text-gray-500">N/A — NGCP data unavailable</span>
+                    }
                   </div>
                 </Card>
               </div>

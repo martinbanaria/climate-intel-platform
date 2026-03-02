@@ -21,6 +21,7 @@ from services.simple_real_data import integrate_simple_real_data
 from services.comprehensive_real_data import integrate_comprehensive_real_data
 from services.newsdata_integration import news_integration
 from services.doe_document_scraper import doe_scraper
+from services.energy_grid_scraper import wesm_scraper
 from models import MarketItem, ClimateMetric, ScrapedDocument, AnalyticsInsight
 
 ROOT_DIR = Path(__file__).parent
@@ -704,40 +705,37 @@ async def get_ppa_statuses():
 
 @api_router.get("/energy/grid-status")
 async def get_grid_status():
-    """Get current grid status (mock data - ready for NGCP integration)"""
+    """Get current grid status. Status derived from real IEMOP WESM prices."""
     try:
-        # Mock grid data - in production, integrate with NGCP API
-        grid_data = {
-            "total_demand": 15234,
-            "total_supply": 16100,
-            "reserves": 866,
-            "status": "STABLE",
-            "timestamp": datetime.utcnow().isoformat(),
-            "grids": [
-                {
-                    "name": "Luzon",
-                    "capacity": 9845,
-                    "current": 8567,
-                    "status": "OPTIMAL",
-                },
-                {
-                    "name": "Visayas",
-                    "capacity": 3234,
-                    "current": 2987,
-                    "status": "NORMAL",
-                },
-                {
-                    "name": "Mindanao",
-                    "capacity": 3021,
-                    "current": 2680,
-                    "status": "NORMAL",
-                },
-            ],
-        }
+        grid_data = await wesm_scraper.derive_grid_status()
         return JSONResponse({"success": True, "data": grid_data})
     except Exception as e:
         logger.error(f"Error fetching grid status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _build_price_alerts(price_trends: dict) -> list:
+    """Generate market alerts from real WESM price data."""
+    alerts = []
+    now = datetime.utcnow().isoformat()
+    for key, data in price_trends.items():
+        region = key.replace("wesm_", "WESM ").title()
+        change = data.get("change_pct", 0)
+        current = data.get("current", 0)
+        if current > 8000:
+            alerts.append({"type": "price", "severity": "high",
+                           "message": f"{region} prices critically high at ₱{current:,}/MWh",
+                           "timestamp": now})
+        elif abs(change) >= 5:
+            direction = "up" if change > 0 else "down"
+            severity = "medium" if abs(change) >= 5 else "low"
+            alerts.append({"type": "price", "severity": severity,
+                           "message": f"{region} prices {direction} {abs(change):.1f}% this week",
+                           "timestamp": now})
+    if not alerts:
+        alerts.append({"type": "price", "severity": "low",
+                       "message": "WESM prices stable across all regions", "timestamp": now})
+    return alerts
 
 
 @api_router.get("/energy/analytics")
@@ -764,30 +762,22 @@ async def get_energy_analytics():
             tech_breakdown[tech]["count"] += 1
             tech_breakdown[tech]["capacity_mw"] += ppa.get("capacity_mw", 0)
 
-        # Price trends (mock data based on WESM patterns)
-        price_trends = {
-            "wesm_luzon": {
-                "current": 5842,
-                "week_ago": 5398,
-                "month_ago": 5125,
-                "trend": [5125, 5234, 5398, 5567, 5712, 5842],
-                "change_pct": 8.2,
-            },
-            "wesm_visayas": {
-                "current": 6123,
-                "week_ago": 5890,
-                "month_ago": 5678,
-                "trend": [5678, 5789, 5890, 5987, 6045, 6123],
-                "change_pct": 7.8,
-            },
-            "wesm_mindanao": {
-                "current": 4567,
-                "week_ago": 4432,
-                "month_ago": 4298,
-                "trend": [4298, 4356, 4432, 4487, 4523, 4567],
-                "change_pct": 6.3,
-            },
+        # Price trends — real data from IEMOP, fallback to static estimates
+        PRICE_TRENDS_FALLBACK = {
+            "wesm_luzon":    {"current": 5842, "week_ago": 5398, "month_ago": 5125,
+                              "trend": [5125, 5234, 5398, 5567, 5712, 5842], "change_pct": 8.2,
+                              "source": "estimated"},
+            "wesm_visayas":  {"current": 6123, "week_ago": 5890, "month_ago": 5678,
+                              "trend": [5678, 5789, 5890, 5987, 6045, 6123], "change_pct": 7.8,
+                              "source": "estimated"},
+            "wesm_mindanao": {"current": 4567, "week_ago": 4432, "month_ago": 4298,
+                              "trend": [4298, 4356, 4432, 4487, 4523, 4567], "change_pct": 6.3,
+                              "source": "estimated"},
         }
+        price_trends = await wesm_scraper.fetch_price_trends(days=7)
+        if not price_trends:
+            logger.warning("IEMOP unavailable; using fallback price trends")
+            price_trends = PRICE_TRENDS_FALLBACK
 
         analytics = {
             "ppa_summary": {
@@ -817,20 +807,7 @@ async def get_energy_analytics():
                     "LNG price volatility",
                 ],
             },
-            "alerts": [
-                {
-                    "type": "price",
-                    "severity": "medium",
-                    "message": "WESM Luzon prices up 8.2% this week",
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-                {
-                    "type": "supply",
-                    "severity": "low",
-                    "message": "Reserve margin adequate at 866 MW",
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-            ],
+            "alerts": _build_price_alerts(price_trends),
         }
 
         return JSONResponse(
