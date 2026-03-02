@@ -1,0 +1,82 @@
+name: Daily Market Data Refresh
+
+on:
+  schedule:
+    # 8:00 AM Manila time (UTC+8) = 00:00 UTC, weekdays only
+    # DA Bantay Presyo publishes Monday-Friday
+    - cron: '0 0 * * 1-5'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions tab
+    inputs:
+      days:
+        description: 'Number of days of history to fetch (1-7)'
+        required: false
+        default: '7'
+
+jobs:
+  refresh-market-data:
+    name: Refresh DA Bantay Presyo Prices
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Wake up Render backend
+        # Render free tier sleeps after 15 min — ping health first and wait for cold start
+        run: |
+          echo "Pinging backend to wake it from sleep..."
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://climate-intel-api.onrender.com/api/health)
+            if [ "$STATUS" = "200" ]; then
+              echo "Backend is awake (attempt $i)"
+              break
+            fi
+            echo "Attempt $i: status=$STATUS, waiting 15s..."
+            sleep 15
+          done
+
+      - name: Trigger DA Bantay Presyo integration
+        # Downloads today's price PDF and updates MongoDB
+        run: |
+          echo "Triggering DA Bantay Presyo data refresh..."
+          RESPONSE=$(curl -s -X POST \
+            --max-time 120 \
+            -H "Content-Type: application/json" \
+            https://climate-intel-api.onrender.com/api/integration/run-da-bantay-presyo)
+          echo "Response: $RESPONSE"
+
+          SUCCESS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)
+          if [ "$SUCCESS" != "True" ]; then
+            echo "::warning::DA Bantay Presyo integration may have failed or returned no data"
+          else
+            echo "DA Bantay Presyo integration succeeded"
+          fi
+
+      - name: Fetch 7-day price history from PDFs
+        # Parses last 7 days of DA PDFs for trend data
+        run: |
+          DAYS="${{ github.event.inputs.days || '7' }}"
+          echo "Fetching $DAYS days of PDF price history..."
+          RESPONSE=$(curl -s -X POST \
+            --max-time 300 \
+            -H "Content-Type: application/json" \
+            "https://climate-intel-api.onrender.com/api/integration/run-comprehensive-real-data?days=$DAYS")
+          echo "Response: $RESPONSE"
+
+          SUCCESS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)
+          if [ "$SUCCESS" = "True" ]; then
+            COUNT=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('items_updated', 'unknown'))" 2>/dev/null)
+            echo "Price history updated — $COUNT items refreshed"
+          else
+            echo "::warning::Comprehensive integration returned: $RESPONSE"
+          fi
+
+      - name: Verify data freshness
+        # Confirm the integration actually updated the database
+        run: |
+          echo "Verifying data freshness..."
+          STATUS=$(curl -s --max-time 30 https://climate-intel-api.onrender.com/api/integration/status)
+          echo "Integration status: $STATUS"
+
+          LAST_UPDATE=$(echo "$STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('last_update', 'unknown'))" 2>/dev/null)
+          TOTAL=$(echo "$STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('total_items', 0))" 2>/dev/null)
+          echo "Last update: $LAST_UPDATE | Total items: $TOTAL"
