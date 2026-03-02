@@ -20,3 +20,5 @@ pillow==10.4.0
 pytesseract==0.3.13
 certifi
 dnspython==2.6.1
+playwright==1.44.0
+playwright-stealth==1.0.6

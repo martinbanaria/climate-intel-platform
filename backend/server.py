@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+import asyncio
 import os
 import ssl
 import logging
@@ -22,6 +23,7 @@ from services.comprehensive_real_data import integrate_comprehensive_real_data
 from services.newsdata_integration import news_integration
 from services.doe_document_scraper import doe_scraper
 from services.energy_grid_scraper import wesm_scraper
+from services.ngcp_scraper import ngcp_scraper
 from models import MarketItem, ClimateMetric, ScrapedDocument, AnalyticsInsight
 
 ROOT_DIR = Path(__file__).parent
@@ -705,9 +707,54 @@ async def get_ppa_statuses():
 
 @api_router.get("/energy/grid-status")
 async def get_grid_status():
-    """Get current grid status. Status derived from real IEMOP WESM prices."""
+    """
+    Get current grid status.
+    Primary: NGCP Power Situation Outlook (Playwright scrape of ngcp.ph).
+    Fallback: WESM-price-derived status if NGCP is unreachable.
+    """
     try:
-        grid_data = await wesm_scraper.derive_grid_status()
+        # Fetch NGCP and WESM data concurrently
+        ngcp_data, price_trends = await asyncio.gather(
+            ngcp_scraper.scrape(),
+            wesm_scraper.fetch_price_trends(days=1),
+            return_exceptions=True,
+        )
+        if isinstance(ngcp_data, Exception):
+            ngcp_data = {}
+        if isinstance(price_trends, Exception):
+            price_trends = {}
+
+        # Derive overall status from Luzon WESM price
+        luzon_price = (price_trends.get("wesm_luzon") or {}).get("current", 0)
+        if luzon_price > 8000:
+            overall_status = "TIGHT"
+        elif luzon_price > 6000:
+            overall_status = "ELEVATED"
+        else:
+            overall_status = "STABLE"
+
+        if ngcp_data:
+            grid_data = {
+                **ngcp_data,
+                "status": overall_status,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        else:
+            # Full fallback when NGCP is unreachable
+            grid_data = {
+                "status": overall_status,
+                "total_demand": None,
+                "total_supply": None,
+                "reserves": None,
+                "timestamp": datetime.utcnow().isoformat(),
+                "data_source": "Status from IEMOP WESM prices; MW data unavailable (NGCP unreachable)",
+                "grids": [
+                    {"name": "Luzon",    "status": overall_status, "capacity": None, "current": None},
+                    {"name": "Visayas",  "status": "NORMAL",        "capacity": None, "current": None},
+                    {"name": "Mindanao", "status": "NORMAL",        "capacity": None, "current": None},
+                ],
+            }
+
         return JSONResponse({"success": True, "data": grid_data})
     except Exception as e:
         logger.error(f"Error fetching grid status: {str(e)}")

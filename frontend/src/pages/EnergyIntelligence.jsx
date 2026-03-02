@@ -54,7 +54,7 @@ const EnergyIntelligence = () => {
       case 'solar':
         return <Sun className="w-5 h-5 text-amber-400" />;
       case 'wind':
-        return <Wind className="w-5 h-5 text-blue-400" />;
+        return <Wind className="w-5 h-5 text-cyan-400" />;
       case 'hydro':
       case 'hydroelectric':
         return <Droplet className="w-5 h-5 text-cyan-400" />;
@@ -139,35 +139,38 @@ const EnergyIntelligence = () => {
                     <Activity className="w-5 h-5 text-emerald-400" />
                   </div>
                   <span className="text-3xl font-bold text-white">{gridStatus.status}</span>
-                  <p className="text-xs text-emerald-400 mt-2">All systems operational</p>
+                  <p className="text-xs text-emerald-400 mt-2">
+                    {gridStatus.data_as_of || 'Source: IEMOP WESM'}
+                  </p>
                 </Card>
 
                 <Card className="bg-slate-800 border-slate-700 p-6" data-testid="demand-card">
-                  <p className="text-sm text-gray-400 mb-2">Total Demand</p>
+                  <p className="text-sm text-gray-400 mb-2">System Peak Demand</p>
                   <div className="flex items-baseline space-x-2">
                     {gridStatus.total_demand != null
                       ? <><span className="text-3xl font-bold text-white">{gridStatus.total_demand.toLocaleString()}</span><span className="text-lg text-gray-400">MW</span></>
-                      : <span className="text-lg text-gray-500">N/A — NGCP data unavailable</span>
+                      : <span className="text-sm text-gray-500">Unavailable</span>
                     }
                   </div>
+                  {gridStatus.source && <p className="text-xs text-gray-600 mt-1">{gridStatus.source}</p>}
                 </Card>
 
                 <Card className="bg-slate-800 border-slate-700 p-6" data-testid="supply-card">
-                  <p className="text-sm text-gray-400 mb-2">Total Supply</p>
+                  <p className="text-sm text-gray-400 mb-2">Available Capacity</p>
                   <div className="flex items-baseline space-x-2">
                     {gridStatus.total_supply != null
                       ? <><span className="text-3xl font-bold text-white">{gridStatus.total_supply.toLocaleString()}</span><span className="text-lg text-gray-400">MW</span></>
-                      : <span className="text-lg text-gray-500">N/A — NGCP data unavailable</span>
+                      : <span className="text-sm text-gray-500">Unavailable</span>
                     }
                   </div>
                 </Card>
 
                 <Card className="bg-slate-800 border-slate-700 p-6" data-testid="reserves-card">
-                  <p className="text-sm text-gray-400 mb-2">Reserves</p>
+                  <p className="text-sm text-gray-400 mb-2">Operating Margin</p>
                   <div className="flex items-baseline space-x-2">
                     {gridStatus.reserves != null
                       ? <><span className="text-3xl font-bold text-white">{gridStatus.reserves.toLocaleString()}</span><span className="text-lg text-gray-400">MW</span></>
-                      : <span className="text-lg text-gray-500">N/A — NGCP data unavailable</span>
+                      : <span className="text-sm text-gray-500">Unavailable</span>
                     }
                   </div>
                 </Card>
@@ -229,14 +232,14 @@ const EnergyIntelligence = () => {
                         <div key={idx} className={`p-4 rounded-lg border ${
                           alert.severity === 'high' ? 'bg-red-900/20 border-red-500/30' :
                           alert.severity === 'medium' ? 'bg-amber-900/20 border-amber-500/30' :
-                          'bg-blue-900/20 border-blue-500/30'
+                          'bg-cyan-900/20 border-cyan-500/30'
                         }`}>
                           <div className="flex items-center justify-between">
                             <span className="text-white font-medium">{alert.message}</span>
                             <span className={`text-xs px-2 py-1 rounded ${
                               alert.severity === 'high' ? 'bg-red-500/20 text-red-400' :
                               alert.severity === 'medium' ? 'bg-amber-500/20 text-amber-400' :
-                              'bg-blue-500/20 text-blue-400'
+                              'bg-cyan-500/20 text-cyan-400'
                             }`}>
                               {alert.type.toUpperCase()}
                             </span>
@@ -369,7 +372,7 @@ const EnergyIntelligence = () => {
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                             ppa.status === 'Operational' ? 'bg-emerald-500/20 text-emerald-400' :
                             ppa.status === 'Under Construction' ? 'bg-amber-500/20 text-amber-400' :
-                            'bg-blue-500/20 text-blue-400'
+                            'bg-cyan-500/20 text-cyan-400'
                           }`}>
                             {ppa.status}
                           </span>
