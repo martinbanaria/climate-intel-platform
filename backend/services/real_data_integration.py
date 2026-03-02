@@ -26,41 +26,36 @@ class DABantayPresyoIntegration:
         }
     
     async def download_latest_pdf(self) -> Optional[bytes]:
-        """Download the latest weekly average price PDF"""
-        # Get today's date
+        """Download the most recent daily price PDF (skips weekends)"""
         today = datetime.now()
-        
-        # Try last 14 days to find available weekly PDF
-        for days_ago in range(14):
+
+        for days_ago in range(7):
             check_date = today - timedelta(days=days_ago)
-            
-            # Try weekly average format first (more structured)
-            weekly_url = self._construct_weekly_pdf_url(check_date)
-            logger.info(f"Trying to download: {weekly_url}")
-            
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(weekly_url, headers=self.headers, timeout=15) as response:
-                        if response.status == 200:
-                            logger.info(f"Successfully downloaded weekly PDF from {check_date.strftime('%Y-%m-%d')}")
-                            return await response.read()
-            except Exception as e:
-                logger.error(f"Error downloading {weekly_url}: {str(e)}")
+            if check_date.weekday() >= 5:  # skip Saturday/Sunday
                 continue
-        
-        logger.error("Could not find any recent PDF files")
+
+            for url in self._construct_daily_urls(check_date):
+                logger.info(f"Trying: {url}")
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, headers=self.headers, timeout=30) as response:
+                            if response.status == 200:
+                                logger.info(f"Downloaded daily PDF for {check_date.strftime('%Y-%m-%d')}")
+                                return await response.read()
+                except Exception as e:
+                    logger.debug(f"Failed {url}: {str(e)}")
+                    continue
+
+        logger.error("Could not find any recent daily price PDF")
         return None
-    
-    def _construct_weekly_pdf_url(self, date: datetime) -> str:
-        """Construct DA Bantay Presyo Weekly Average PDF URL"""
-        # Format: https://www.da.gov.ph/wp-content/uploads/2026/02/Weekly-Average-Prices-February-16-21-2026.pdf
+
+    def _construct_daily_urls(self, date: datetime) -> List[str]:
+        """Construct DA Daily Price Index PDF URL candidates"""
         month_name = date.strftime("%B")
-        # Try to find the week containing this date
-        # Weekly reports are usually for Sunday-Friday or Monday-Friday
-        week_start = date - timedelta(days=date.weekday())  # Monday
-        week_end = week_start + timedelta(days=5)  # Friday
-        
-        return f"{self.base_url}/{date.year}/{date.month:02d}/Weekly-Average-Prices-{month_name}-{week_start.day}-{week_end.day}-{date.year}.pdf"
+        return [
+            f"{self.base_url}/{date.year}/{date.month:02d}/Daily-Price-Index-{month_name}-{date.day}-{date.year}.pdf",
+            f"{self.base_url}/{date.year}/{date.month:02d}/{month_name}-{date.day}-{date.year}-DPI-AFC.pdf",
+        ]
     
     async def extract_text_from_pdf(self, pdf_bytes: bytes) -> str:
         """Extract text from PDF"""
@@ -74,7 +69,7 @@ class DABantayPresyoIntegration:
                 if text:
                     text_content.append(text)
             
-            return '\\n'.join(text_content)
+            return '\n'.join(text_content)
         except Exception as e:
             logger.error(f"Error extracting PDF text: {str(e)}")
             return ""
@@ -84,7 +79,7 @@ class DABantayPresyoIntegration:
         items = []
         
         # Split into lines
-        lines = text.split('\\n')
+        lines = text.split('\n')
         
         current_commodity = None
         
@@ -102,7 +97,7 @@ class DABantayPresyoIntegration:
             # Pattern for item with price
             # Example: "Well Milled Rice 52.00"
             # Example: "Chicken (Whole) Dressed 165.50"
-            match = re.match(r'^([A-Za-z\\s\\(\\)\\-/,]+?)\\s+(\\d+\\.\\d+)\\s*$', line)
+            match = re.match(r'^([A-Za-z\s\(\)\-/,]+?)\s+(\d+\.\d+)\s*$', line)
             if match:
                 name = match.group(1).strip()
                 price = float(match.group(2))
@@ -119,7 +114,7 @@ class DABantayPresyoIntegration:
             
             # Pattern for price range
             # Example: "Tomato 92.50-105.00"
-            match = re.match(r'^([A-Za-z\\s\\(\\)\\-/,]+?)\\s+(\\d+\\.\\d+)\\s*-\\s*(\\d+\\.\\d+)', line)
+            match = re.match(r'^([A-Za-z\s\(\)\-/,]+?)\s+(\d+\.\d+)\s*-\s*(\d+\.\d+)', line)
             if match:
                 name = match.group(1).strip()
                 low_price = float(match.group(2))
