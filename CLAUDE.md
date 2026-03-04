@@ -210,6 +210,42 @@ Two separate config files depending on which agent/tool you're using:
 
 Both files are committed to the repo. If MCP servers show as not configured in Claude Code, check that `.mcp.json` exists at project root and run `claude mcp list` to verify.
 
+## Climate Intel Dev Agent (completed March 2026)
+A local CLI assistant powered by the Claude Agent SDK with live access to MongoDB Atlas
+and the production backend API.
+
+```
+agent/
+  __init__.py          # Package stub
+  __main__.py          # python -m agent entry point
+  cli.py               # Single-query and --repl modes
+  client.py            # ClaudeAgentOptions: all tools + system prompt + adaptive thinking
+  config.py            # Loads backend/.env, exposes URLs and paths
+  requirements.txt     # claude-agent-sdk, motor, aiohttp, python-dotenv, anyio
+  prompts/
+    system.py          # build_system_prompt(): preamble + technical-architect-engineer.md + CLAUDE.md
+  tools/
+    mongodb_tools.py   # 5 tools: query_collection, check_data_freshness, collection_stats,
+                       #          verify_upsert, full_data_audit
+    api_tools.py       # 4 tools: check_api_health, probe_endpoint,
+                       #          trigger_integration, check_backend_status
+```
+
+**Usage** (run from a separate terminal — NOT inside Claude Code):
+```bash
+pip install -r agent/requirements.txt
+python -m agent "Check data freshness across all collections"
+python -m agent --repl
+```
+
+**Important**: The agent uses `ClaudeSDKClient` which launches a subprocess. It cannot run
+nested inside an active `claude` CLI session (CLAUDECODE env var blocks it). Run from a
+plain terminal tab.
+
+Model: `claude-opus-4-6` with `thinking: {type: "adaptive"}`.
+
+---
+
 ## Render Deployment Notes
 - Free tier: sleeps after 15 min inactivity, ~30-60s cold start
 - Auto-deploys on push to main branch
