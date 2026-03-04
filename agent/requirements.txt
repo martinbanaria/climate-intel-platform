@@ -1,0 +1,8 @@
+claude-agent-sdk
+motor>=3.3.0
+pymongo>=4.6.0
+aiohttp>=3.9.0
+python-dotenv>=1.0.0
+certifi
+dnspython
+anyio
