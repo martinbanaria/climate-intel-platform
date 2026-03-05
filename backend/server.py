@@ -727,6 +727,12 @@ async def get_doe_circulars():
 
             circulars = await fetch_doe_issuances()
 
+        # Convert datetime objects to ISO strings for JSON serialization
+        for doc in circulars:
+            for key, val in doc.items():
+                if isinstance(val, datetime):
+                    doc[key] = val.isoformat()
+
         return JSONResponse(
             {"success": True, "count": len(circulars), "data": circulars}
         )

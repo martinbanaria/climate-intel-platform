@@ -22,7 +22,8 @@ const EnergyIntelligence = () => {
   const fetchEnergyData = async () => {
     setLoading(true);
     try {
-      const [gridRes, ppaRes, newsRes, circularRes, analyticsRes] = await Promise.all([
+      // Use allSettled so one failing endpoint doesn't block the rest
+      const [gridRes, ppaRes, newsRes, circularRes, analyticsRes] = await Promise.allSettled([
         energyAPI.getGridStatus(),
         energyAPI.getPPAStatuses(),
         energyAPI.getNews(),
@@ -30,11 +31,11 @@ const EnergyIntelligence = () => {
         energyAPI.getAnalytics()
       ]);
 
-      if (gridRes.success) setGridStatus(gridRes.data);
-      if (ppaRes.success) setPpaList(ppaRes.data);
-      if (newsRes.success) setNews(newsRes.data);
-      if (circularRes.success) setCirculars(circularRes.data);
-      if (analyticsRes.success) setAnalytics(analyticsRes.data);
+      if (gridRes.status === 'fulfilled' && gridRes.value?.success) setGridStatus(gridRes.value.data);
+      if (ppaRes.status === 'fulfilled' && ppaRes.value?.success) setPpaList(ppaRes.value.data);
+      if (newsRes.status === 'fulfilled' && newsRes.value?.success) setNews(newsRes.value.data);
+      if (circularRes.status === 'fulfilled' && circularRes.value?.success) setCirculars(circularRes.value.data);
+      if (analyticsRes.status === 'fulfilled' && analyticsRes.value?.success) setAnalytics(analyticsRes.value.data);
     } catch (error) {
       console.error('Error fetching energy data:', error);
     } finally {
