@@ -13,12 +13,11 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 WEATHERAPI_KEY = os.environ.get("WEATHERAPI_KEY", "")
-WEATHERAPI_BASE = "http://api.weatherapi.com/v1"
+WEATHERAPI_BASE = "https://api.weatherapi.com/v1"
 
 # Philippine location used for all climate metrics
 PH_LOCATION = "Manila,Philippines"
@@ -30,6 +29,7 @@ EPA_TO_AQI = {1: 25, 2: 75, 3: 125, 4: 175, 5: 250, 6: 350}
 # ──────────────────────────────────────────────
 # Status helpers
 # ──────────────────────────────────────────────
+
 
 def _temp_status(val: float) -> str:
     if val > 38:
@@ -43,7 +43,7 @@ def _temp_status(val: float) -> str:
 
 def _rainfall_status(val: float) -> str:
     if val > 100:
-        return "WARNING"   # Heavy rain — flooding risk
+        return "WARNING"  # Heavy rain — flooding risk
     if val > 50:
         return "MODERATE"
     return "GOOD"
@@ -109,20 +109,21 @@ def _wind_status(val: float) -> str:
 # Recommendation + impact text
 # ──────────────────────────────────────────────
 
+
 def _temp_text(val: float):
     if val > 36:
         return (
             "Extreme heat advisory. Limit outdoor exposure, keep crops watered.",
-            "High temperatures stress leafy vegetables and livestock, driving prices up."
+            "High temperatures stress leafy vegetables and livestock, driving prices up.",
         )
     if val > 33:
         return (
             "Hot conditions. Early morning farming activities recommended.",
-            "Heat stress reduces yield of temperature-sensitive crops like lettuce and cabbage."
+            "Heat stress reduces yield of temperature-sensitive crops like lettuce and cabbage.",
         )
     return (
         "Comfortable temperature range. Good conditions for outdoor farming.",
-        "Favorable temperatures support stable crop yields and steady market prices."
+        "Favorable temperatures support stable crop yields and steady market prices.",
     )
 
 
@@ -130,21 +131,21 @@ def _rainfall_text(val: float):
     if val > 100:
         return (
             "Heavy rainfall alert. Risk of flooding in low-lying farms.",
-            "Excessive rain damages root crops and disrupts supply chain — expect price spikes."
+            "Excessive rain damages root crops and disrupts supply chain — expect price spikes.",
         )
     if val > 50:
         return (
             "Significant rainfall. Monitor drainage in farm areas.",
-            "High rainfall may affect harvest operations but supports soil water reserves."
+            "High rainfall may affect harvest operations but supports soil water reserves.",
         )
     if val < 2:
         return (
             "Dry conditions. Irrigation may be needed for crops.",
-            "Low rainfall increases irrigation costs and may stress drought-sensitive crops."
+            "Low rainfall increases irrigation costs and may stress drought-sensitive crops.",
         )
     return (
         "Adequate rainfall for agriculture. Good conditions for farming.",
-        "Optimal moisture levels supporting vegetable production and lowering irrigation costs."
+        "Optimal moisture levels supporting vegetable production and lowering irrigation costs.",
     )
 
 
@@ -152,16 +153,16 @@ def _aqi_text(val: float):
     if val > 150:
         return (
             "Unhealthy air quality. Wear masks outdoors, limit strenuous activity.",
-            "Poor air quality stresses crops and reduces pollinator activity."
+            "Poor air quality stresses crops and reduces pollinator activity.",
         )
     if val > 100:
         return (
             "Moderate air quality concerns. Sensitive groups should reduce outdoor exposure.",
-            "Elevated pollution may affect open-air markets and farm worker productivity."
+            "Elevated pollution may affect open-air markets and farm worker productivity.",
         )
     return (
         "Air quality is good. Safe for all outdoor activities.",
-        "Good air quality supports healthy crop growth and market operations."
+        "Good air quality supports healthy crop growth and market operations.",
     )
 
 
@@ -169,16 +170,16 @@ def _humidity_text(val: float):
     if val > 88:
         return (
             "Very high humidity. High risk of fungal disease in crops.",
-            "Excessive humidity promotes mold and blight in vegetables, reducing supply."
+            "Excessive humidity promotes mold and blight in vegetables, reducing supply.",
         )
     if val > 80:
         return (
             "Elevated humidity. Monitor crops for fungal issues.",
-            "Higher humidity may increase disease pressure on leafy vegetables."
+            "Higher humidity may increase disease pressure on leafy vegetables.",
         )
     return (
         "Comfortable humidity levels. Good conditions for most crops.",
-        "Optimal humidity supports healthy crop development and stable yields."
+        "Optimal humidity supports healthy crop development and stable yields.",
     )
 
 
@@ -186,16 +187,16 @@ def _uv_text(val: float):
     if val > 10:
         return (
             "Extreme UV. Use SPF 50+ sunscreen. Avoid sun 10am–4pm.",
-            "Extreme UV can scorch sensitive crops and stress field workers."
+            "Extreme UV can scorch sensitive crops and stress field workers.",
         )
     if val > 7:
         return (
             "Very high UV levels. Use SPF 50+ and seek shade during 10am–4pm.",
-            "High UV can stress crops but also helps natural pest control."
+            "High UV can stress crops but also helps natural pest control.",
         )
     return (
         "Moderate UV. Use standard sun protection when outdoors.",
-        "Normal UV levels support photosynthesis without crop stress."
+        "Normal UV levels support photosynthesis without crop stress.",
     )
 
 
@@ -203,16 +204,16 @@ def _soil_text(val: float):
     if val < 15:
         return (
             "Very low soil moisture. Irrigation urgently needed.",
-            "Dry soils reduce vegetable yields and push prices higher."
+            "Dry soils reduce vegetable yields and push prices higher.",
         )
     if val > 60:
         return (
             "Waterlogged soil conditions. Risk of root rot.",
-            "Excessive soil moisture damages root crops and tubers."
+            "Excessive soil moisture damages root crops and tubers.",
         )
     return (
         "Optimal soil moisture for planting. Good conditions for crop growth.",
-        "Excellent soil conditions supporting vegetable production and stable prices."
+        "Excellent soil conditions supporting vegetable production and stable prices.",
     )
 
 
@@ -220,16 +221,16 @@ def _drought_text(val: float):
     if val > 3.5:
         return (
             "Significant drought risk. Water conservation measures advised.",
-            "Drought conditions reduce crop yields and drive commodity prices higher."
+            "Drought conditions reduce crop yields and drive commodity prices higher.",
         )
     if val > 2:
         return (
             "Mild drought stress. Monitor water availability for crops.",
-            "Moderate drought may affect irrigation-dependent crops."
+            "Moderate drought may affect irrigation-dependent crops.",
         )
     return (
         "Low drought risk. Adequate water supply for agriculture.",
-        "Minimal drought stress keeping crop prices stable."
+        "Minimal drought stress keeping crop prices stable.",
     )
 
 
@@ -237,22 +238,23 @@ def _wind_text(val: float):
     if val > 60:
         return (
             "Strong winds. Risk of crop damage and dangerous fishing conditions.",
-            "High winds damage standing crops and disrupt supply chains significantly."
+            "High winds damage standing crops and disrupt supply chains significantly.",
         )
     if val > 40:
         return (
             "Moderate winds. Secure farm structures and greenhouses.",
-            "Strong winds may affect pollination and damage tall crops."
+            "Strong winds may affect pollination and damage tall crops.",
         )
     return (
         "Gentle breeze conditions. Safe for all outdoor activities.",
-        "Calm conditions favorable for farming operations and fishing."
+        "Calm conditions favorable for farming operations and fishing.",
     )
 
 
 # ──────────────────────────────────────────────
 # Derived metrics (no direct API field)
 # ──────────────────────────────────────────────
+
 
 def _estimate_soil_moisture(precip_mm: float, humidity: float) -> float:
     """Estimate soil moisture % from rainfall and humidity heuristic."""
@@ -274,6 +276,7 @@ def _estimate_drought_index(precip_mm: float, humidity: float) -> float:
 # Trend management
 # ──────────────────────────────────────────────
 
+
 def _update_trend(existing_trend: list, new_value: float, max_len: int = 7) -> list:
     """Shift existing trend left, append new value, keep last max_len entries."""
     trend = list(existing_trend) if existing_trend else []
@@ -285,31 +288,41 @@ def _update_trend(existing_trend: list, new_value: float, max_len: int = 7) -> l
 # Main fetch
 # ──────────────────────────────────────────────
 
-async def fetch_weather_data() -> Optional[dict]:
-    """Fetch current weather + AQI from WeatherAPI.com."""
-    if not WEATHERAPI_KEY:
-        logger.error("WEATHERAPI_KEY not set in environment")
-        return None
 
-    url = (
-        f"{WEATHERAPI_BASE}/current.json"
-        f"?key={WEATHERAPI_KEY}&q={PH_LOCATION}&aqi=yes"
-    )
+async def fetch_weather_data() -> dict:
+    """Fetch current weather + AQI from WeatherAPI.com.
+    Returns the JSON data on success, or a dict with 'error' key on failure."""
+    if not WEATHERAPI_KEY:
+        msg = "WEATHERAPI_KEY not set in environment"
+        logger.error(msg)
+        return {"error": msg}
+
+    url = f"{WEATHERAPI_BASE}/current.json?key={WEATHERAPI_KEY}&q={PH_LOCATION}&aqi=yes"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
                 if resp.status != 200:
-                    logger.error(f"WeatherAPI returned HTTP {resp.status}")
-                    return None
+                    body = await resp.text()
+                    msg = f"WeatherAPI returned HTTP {resp.status}: {body[:200]}"
+                    logger.error(msg)
+                    return {"error": msg}
                 return await resp.json()
+    except asyncio.TimeoutError:
+        msg = "WeatherAPI request timed out after 15s"
+        logger.error(msg)
+        return {"error": msg}
     except Exception as e:
-        logger.error(f"WeatherAPI fetch error: {e}")
-        return None
+        msg = f"WeatherAPI fetch error: {e}"
+        logger.error(msg)
+        return {"error": msg}
 
 
 # ──────────────────────────────────────────────
 # MongoDB update
 # ──────────────────────────────────────────────
+
 
 async def run_weather_update(db) -> dict:
     """
@@ -317,16 +330,16 @@ async def run_weather_update(db) -> dict:
     Returns a result dict with success flag and details.
     """
     data = await fetch_weather_data()
-    if not data:
-        return {"success": False, "error": "Failed to fetch weather data from WeatherAPI"}
+    if "error" in data:
+        return {"success": False, "error": data["error"]}
 
     try:
         current = data["current"]
-        temp_c     = current["temp_c"]
-        precip_mm  = current["precip_mm"]
-        humidity   = current["humidity"]
-        uv         = current["uv"]
-        wind_kph   = current["wind_kph"]
+        temp_c = current["temp_c"]
+        precip_mm = current["precip_mm"]
+        humidity = current["humidity"]
+        uv = current["uv"]
+        wind_kph = current["wind_kph"]
 
         # AQI: use US EPA index (1-6) → convert to AQI scale
         aqi_raw = current.get("air_quality", {}).get("us-epa-index", 1)
@@ -452,7 +465,9 @@ async def run_weather_update(db) -> dict:
             )
             updated += 1
 
-        logger.info(f"Weather update complete — {updated} metrics updated at {now.isoformat()}")
+        logger.info(
+            f"Weather update complete — {updated} metrics updated at {now.isoformat()}"
+        )
         return {
             "success": True,
             "metrics_updated": updated,

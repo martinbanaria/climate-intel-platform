@@ -80,6 +80,8 @@ async def health_check():
         "openssl_version": ssl.OPENSSL_VERSION,
         "mongo_url_prefix": mongo_url[:30] + "...",
         "certifi_ca": certifi.where(),
+        "weatherapi_key_set": bool(os.environ.get("WEATHERAPI_KEY")),
+        "newsdata_key_set": bool(os.environ.get("NEWSDATA_API_KEY")),
     }
     try:
         # Test MongoDB connection
