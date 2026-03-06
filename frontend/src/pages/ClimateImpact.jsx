@@ -79,7 +79,7 @@ const ClimateImpact = () => {
             <h1 className="text-3xl font-bold text-white">Climate Impact Analysis</h1>
           </div>
           <p className="text-gray-400 text-sm">
-            Real-time climate monitoring and market impact assessment • Data from PAGASA, DENR, and LGU monitoring stations
+            Real-time climate monitoring and market impact assessment • Data from WeatherAPI.com (Manila, NCR)
           </p>
         </div>
 
@@ -139,7 +139,8 @@ const ClimateImpact = () => {
           <div className="flex items-start space-x-4">
             <Info className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" />
             <div>
-              <h3 className="text-lg font-semibold text-white mb-2">Key Market Impact Insights</h3>
+              <h3 className="text-lg font-semibold text-white mb-1">Key Market Impact Insights</h3>
+              <p className="text-xs text-gray-500 mb-3">Estimated — these are general guidelines, not computed from live metric values.</p>
               <div className="space-y-2 text-sm text-gray-300">
                 <p>• <span className="text-emerald-400 font-medium">Lower temperatures</span> are supporting vegetable growth, keeping prices down for lettuce, broccoli, and leafy greens.</p>
                 <p>• <span className="text-emerald-400 font-medium">Adequate rainfall</span> has improved soil moisture, stabilizing rice and vegetable supplies across NCR.</p>
@@ -219,7 +220,7 @@ const ClimateImpact = () => {
         {/* Footer */}
         <div className="mt-12 pt-6 border-t border-slate-800 text-center">
           <p className="text-sm text-gray-500">
-            📊 Climate data sourced from PAGASA, DENR, and LGU monitoring stations. Updated hourly. Not an official government app.
+            Live weather data sourced from WeatherAPI.com (Manila, NCR). Soil moisture and drought index are derived estimates. Updated daily. Not an official government app.
           </p>
         </div>
       </div>
