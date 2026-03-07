@@ -13,5 +13,7 @@ services:
         value: climate_intel
       - key: NEWSDATA_API_KEY
         sync: false
+      - key: WEATHERAPI_KEY
+        sync: false
       - key: PYTHON_VERSION
-        value: 3.9.16
+        value: 3.11.7
