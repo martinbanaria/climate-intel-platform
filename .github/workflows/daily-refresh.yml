@@ -110,6 +110,24 @@ jobs:
             echo "::warning::DOE update returned: $RESPONSE"
           fi
 
+      - name: Update fuel prices from DOE OIMB
+        # Fetches weekly NCR retail pump prices via anomura API (DOE OIMB source)
+        run: |
+          echo "Updating fuel prices from DOE OIMB..."
+          RESPONSE=$(curl -s -X POST \
+            --max-time 30 \
+            -H "Content-Type: application/json" \
+            https://climate-intel-api.onrender.com/api/integration/run-fuel-update)
+          echo "Response: $RESPONSE"
+
+          SUCCESS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)
+          if [ "$SUCCESS" = "True" ]; then
+            COUNT=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('items_updated', 'unknown'))" 2>/dev/null)
+            echo "Fuel prices updated — $COUNT items refreshed"
+          else
+            echo "::warning::Fuel update returned: $RESPONSE"
+          fi
+
       - name: Send Telegram daily alert
         # Broadcasts morning price briefing to all subscribed Telegram users
         run: |

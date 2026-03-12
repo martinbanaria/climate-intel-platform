@@ -211,37 +211,12 @@ class DOEDocumentScraper:
         ]
     
     async def scrape_ppa_statuses(self) -> List[Dict]:
-        """Scrape Power Purchase Agreement statuses"""
-        # Mock PPA data
-        return [
-            {
-                'project': 'Solar Philippines Nueva Ecija',
-                'capacity_mw': 150,
-                'status': 'Operational',
-                'ppa_date': '2024-06-15',
-                'off_taker': 'Meralco',
-                'term_years': 20,
-                'technology': 'Solar PV'
-            },
-            {
-                'project': 'Luzon Wind Farm Phase 2',
-                'capacity_mw': 75,
-                'status': 'Under Construction',
-                'ppa_date': '2025-08-20',
-                'off_taker': 'Manila Electric Company',
-                'term_years': 25,
-                'technology': 'Wind'
-            },
-            {
-                'project': 'Mindanao Geothermal Expansion',
-                'capacity_mw': 200,
-                'status': 'Contracted',
-                'ppa_date': '2026-01-10',
-                'off_taker': 'NGCP',
-                'term_years': 20,
-                'technology': 'Geothermal'
-            }
-        ]
+        """
+        Returns PSA/PPA project data.
+        ERC (erc.gov.ph) is blocked by Cloudflare interactive challenge — cannot scrape.
+        Returns empty list; callers should handle data_unavailable state.
+        """
+        return []
 
 # Singleton instance
 doe_scraper = DOEDocumentScraper()

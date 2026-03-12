@@ -75,70 +75,129 @@ class ComprehensiveRealDataIntegrator:
         else:
             return "STABLE"
     
-    def generate_climate_impact(self, category: str, name: str, trend_direction: str) -> Dict:
-        """Generate climate impact based on category and trend"""
-        
-        # Base impacts by category
-        base_impacts = {
-            'vegetables': {
+    def generate_climate_impact(self, category: str, name: str, trend_direction: str, climate_metrics: Dict = None) -> Dict:
+        """Generate climate impact text computed from real WeatherAPI climate_metrics."""
+        if not climate_metrics:
+            return {
                 'level': 'low',
-                'factors': ['Favorable growing conditions', 'Adequate rainfall'],
-                'forecast': 'Supply stable'
-            },
-            'poultry': {
-                'level': 'medium',
-                'factors': ['Heat affecting production', 'Feed costs variable'],
-                'forecast': 'Monitor temperature impact'
-            },
-            'meat': {
-                'level': 'medium',
-                'factors': ['Heat stress concerns', 'Feed availability good'],
-                'forecast': 'Watch for heat waves'
-            },
-            'fish': {
-                'level': 'low',
-                'factors': ['Good fishing conditions', 'Water quality stable'],
-                'forecast': 'Supply adequate'
-            },
-            'rice': {
-                'level': 'low',
-                'factors': ['Post-harvest season', 'Good irrigation'],
-                'forecast': 'Stable supply'
-            },
-            'spices': {
-                'level': 'medium',
-                'factors': ['Variable weather impact'],
-                'forecast': 'Supply dependent on rainfall'
-            },
-            'fuel': {
-                'level': 'low',
-                'factors': ['Global market stable'],
-                'forecast': 'Prices stable'
+                'factors': ['Climate data unavailable'],
+                'forecast': 'Monitor market conditions',
             }
-        }
-        
-        impact = base_impacts.get(category, {
-            'level': 'low',
-            'factors': ['Normal conditions'],
-            'forecast': 'Stable'
-        })
-        
-        # Adjust based on trend
-        if trend_direction == 'increasing':
-            if 'garlic' in name.lower():
-                impact['level'] = 'high'
-                impact['factors'] = ['Drought reducing yield', 'Heat damage']
-                impact['forecast'] = 'Limited supply driving prices up'
+
+        # Extract real metric values
+        def _val(metric_name, default):
+            m = climate_metrics.get(metric_name, {})
+            return m.get('value', default) if m else default
+
+        temp = _val('Temperature', 28)
+        humidity = _val('Humidity', 70)
+        rainfall = _val('Rainfall', 0)
+        drought_idx = _val('Drought Index', 3)
+        uv = _val('UV Index', 7)
+        aqi = _val('Air Quality Index', 30)
+
+        # Derive descriptors
+        temp_label = 'extreme heat' if temp > 34 else 'high temperature' if temp > 31 else 'warm' if temp > 28 else 'normal temperature'
+        rain_label = 'heavy rainfall' if rainfall > 20 else 'moderate rain' if rainfall > 5 else 'light rain' if rainfall > 0 else 'dry conditions'
+        drought_label = 'drought conditions' if drought_idx > 6 else 'moderate dry spell' if drought_idx > 3 else 'good soil moisture'
+        aqi_label = 'poor air quality' if aqi > 100 else 'moderate air quality' if aqi > 50 else 'good air quality'
+
+        if category == 'vegetables':
+            if drought_idx > 5 or (temp > 32 and rainfall == 0):
+                level = 'high'
+                factors = [f'Drought index {drought_idx:.1f} — soil moisture low', f'{temp:.0f}°C heat stressing crops']
+                forecast = 'Limited supply expected; prices may rise'
+            elif rainfall > 20:
+                level = 'medium'
+                factors = [f'{rain_label} ({rainfall:.1f}mm) may damage leafy vegetables', f'{aqi_label}']
+                forecast = 'Heavy rain may reduce harvest; monitor supply'
+            else:
+                level = 'low'
+                factors = [f'{temp_label} ({temp:.0f}°C)', f'{rain_label} — {drought_label}']
+                forecast = 'Growing conditions stable; supply normal'
+
+        elif category in ('poultry', 'meat'):
+            if temp > 33:
+                level = 'high'
+                factors = [f'Extreme heat ({temp:.0f}°C) causing heat stress', f'Humidity {humidity:.0f}% amplifying stress']
+                forecast = 'Heat stress reducing productivity; higher prices likely'
+            elif temp > 30:
+                level = 'medium'
+                factors = [f'High temperature ({temp:.0f}°C) affecting output', f'Humidity {humidity:.0f}%']
+                forecast = 'Monitor heat stress impact on production'
+            else:
+                level = 'low'
+                factors = [f'Temperature normal ({temp:.0f}°C)', 'Feed supply stable']
+                forecast = 'Production conditions good'
+
+        elif category == 'fish':
+            if rainfall > 20 or (uv > 10):
+                level = 'medium'
+                factors = [f'{rain_label} ({rainfall:.1f}mm) affecting fishing', f'UV index {uv:.0f}']
+                forecast = 'Rough conditions may reduce catch; monitor supply'
+            else:
+                level = 'low'
+                factors = [f'{rain_label} — fishing conditions {("favorable" if rainfall < 10 else "acceptable")}', f'{aqi_label}']
+                forecast = 'Supply adequate; normal fishing conditions'
+
+        elif category == 'rice':
+            if drought_idx > 5:
+                level = 'high'
+                factors = [f'Drought index {drought_idx:.1f} — irrigation stress', f'{temp:.0f}°C heat']
+                forecast = 'Irrigation demand high; watch for supply constraints'
+            elif rainfall > 15:
+                level = 'medium'
+                factors = [f'{rain_label} ({rainfall:.1f}mm) — good for standing crop', 'Flood risk in low-lying areas']
+                forecast = 'Adequate water supply; watch for flooding'
+            else:
+                level = 'low'
+                factors = [f'{temp_label} ({temp:.0f}°C)', f'{drought_label}']
+                forecast = 'Rice supply stable; normal growing season'
+
+        elif category == 'spices':
+            if drought_idx > 4:
+                level = 'high' if drought_idx > 6 else 'medium'
+                factors = [f'{drought_label} (index {drought_idx:.1f})', f'Low rainfall ({rainfall:.1f}mm) limiting yield']
+                forecast = 'Dry conditions constraining spice production; prices may rise'
+            else:
+                level = 'low'
+                factors = [f'{rain_label} — {drought_label}', f'Temperature {temp:.0f}°C suitable']
+                forecast = 'Adequate growing conditions for spices'
+
+        else:  # fuel, others
+            level = 'low'
+            factors = [f'Climate: {temp_label} ({temp:.0f}°C), {rain_label}', 'Market driven by global factors']
+            forecast = 'Prices follow global crude and supply chain trends'
+
+        # Override forecast if price trend signals supply issue
+        if trend_direction == 'increasing' and level == 'low':
+            level = 'medium'
+            forecast = f'Prices trending up — {forecast.lower()}'
         elif trend_direction == 'decreasing':
-            impact['factors'].append('Good harvest')
-            impact['forecast'] = 'Abundant supply, prices declining'
-        
-        return impact
+            forecast = f'Prices declining — {forecast.lower()}'
+
+        return {'level': level, 'factors': factors, 'forecast': forecast}
     
+    async def fetch_climate_metrics(self) -> Dict:
+        """Load current climate metrics from MongoDB into a dict keyed by metric_name."""
+        metrics = {}
+        async for doc in self.db.climate_metrics.find({}, {"_id": 0, "metric_name": 1, "value": 1, "unit": 1, "status": 1}):
+            name = doc.get("metric_name", "")
+            if name:
+                metrics[name] = doc
+        return metrics
+
     async def integrate_real_data(self, days: int = 7):
         """Integrate real price data from DA Daily Price Index + DOE fuel prices"""
         logger.info(f"Starting real data integration for last {days} days...")
-        
+
+        # Fetch real climate metrics once before the loop
+        climate_metrics = await self.fetch_climate_metrics()
+        if climate_metrics:
+            logger.info(f"Loaded {len(climate_metrics)} climate metrics for impact computation")
+        else:
+            logger.warning("No climate metrics in DB — climate impact text will be generic")
+
         # Step 1: Integrate DA Bantay Presyo agricultural commodities
         price_history = await daily_parser.build_price_history(days)
         
@@ -179,9 +238,10 @@ class ComprehensiveRealDataIntegrator:
                         'trend': trend_data['trend'],
                         'lastUpdated': datetime.utcnow(),
                         'climateImpact': self.generate_climate_impact(
-                            category, 
-                            commodity, 
-                            trend_data['trend_direction']
+                            category,
+                            commodity,
+                            trend_data['trend_direction'],
+                            climate_metrics,
                         ),
                         'metadata': {
                             'data_source': 'DA Bantay Presyo Daily Price Index',

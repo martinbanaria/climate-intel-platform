@@ -26,6 +26,7 @@ from services.energy_grid_scraper import wesm_scraper
 from services.ngcp_scraper import ngcp_scraper
 from services.weather_integration import run_weather_update
 from services.doe_integration import run_doe_update
+from services.doe_fuel_integration import integrate_doe_fuel_prices
 from models import MarketItem, ClimateMetric, ScrapedDocument, AnalyticsInsight
 
 ROOT_DIR = Path(__file__).parent
@@ -640,6 +641,20 @@ async def run_realistic_integration():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.post("/integration/run-fuel-update")
+async def run_fuel_update_endpoint():
+    """Fetch live NCR fuel prices from DOE OIMB (via anomura API) and update market_items."""
+    try:
+        success = await integrate_doe_fuel_prices(db)
+        if success:
+            fuel_items = await db.market_items.count_documents({"category": "fuel"})
+            return JSONResponse({"success": True, "items_updated": fuel_items})
+        return JSONResponse({"success": False, "message": "Fuel integration returned no data"}, status_code=500)
+    except Exception as e:
+        logger.error(f"Error in fuel update: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.post("/integration/run-da-bantay-presyo")
 async def run_da_integration():
     """Trigger real data integration from DA Bantay Presyo"""
@@ -755,10 +770,18 @@ async def get_doe_circulars():
 
 @api_router.get("/energy/ppa-status")
 async def get_ppa_statuses():
-    """Get Power Purchase Agreement statuses"""
+    """Get Power Purchase Agreement statuses.
+    Note: ERC (erc.gov.ph) is blocked by Cloudflare. Returns empty list with data_status.
+    """
     try:
         ppa_list = await doe_scraper.scrape_ppa_statuses()
-        return JSONResponse({"success": True, "count": len(ppa_list), "data": ppa_list})
+        return JSONResponse({
+            "success": True,
+            "count": len(ppa_list),
+            "data": ppa_list,
+            "data_status": "unavailable",
+            "data_status_reason": "ERC website (erc.gov.ph) is blocked by Cloudflare interactive challenge. PSA data cannot be scraped programmatically.",
+        })
     except Exception as e:
         logger.error(f"Error fetching PPA statuses: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -798,36 +821,41 @@ async def get_grid_status():
                 "status": overall_status,
                 "timestamp": datetime.utcnow().isoformat(),
             }
+            # Persist successful NGCP scrape to MongoDB for fallback
+            try:
+                await db.grid_status_cache.update_one(
+                    {"_id": "latest"},
+                    {"$set": {**ngcp_data, "cached_at": datetime.utcnow().isoformat()}},
+                    upsert=True,
+                )
+            except Exception:
+                pass  # Persistence failure is non-critical
         else:
-            # Full fallback when NGCP is unreachable
-            grid_data = {
-                "status": overall_status,
-                "total_demand": None,
-                "total_supply": None,
-                "reserves": None,
-                "timestamp": datetime.utcnow().isoformat(),
-                "data_source": "Status from IEMOP WESM prices; MW data unavailable (NGCP unreachable)",
-                "grids": [
-                    {
-                        "name": "Luzon",
-                        "status": overall_status,
-                        "capacity": None,
-                        "current": None,
-                    },
-                    {
-                        "name": "Visayas",
-                        "status": "NORMAL",
-                        "capacity": None,
-                        "current": None,
-                    },
-                    {
-                        "name": "Mindanao",
-                        "status": "NORMAL",
-                        "capacity": None,
-                        "current": None,
-                    },
-                ],
-            }
+            # Try MongoDB cached value before showing full unavailable
+            cached = await db.grid_status_cache.find_one({"_id": "latest"}, {"_id": 0})
+            if cached:
+                cached_at = cached.pop("cached_at", "unknown")
+                grid_data = {
+                    **cached,
+                    "status": overall_status,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "data_source": f"NGCP data from cache (scraped {cached_at}); MW values may be stale",
+                }
+            else:
+                # Full fallback when NGCP is unreachable and no cache
+                grid_data = {
+                    "status": overall_status,
+                    "total_demand": None,
+                    "total_supply": None,
+                    "reserves": None,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "data_source": "Status from IEMOP WESM prices; MW data unavailable (NGCP unreachable)",
+                    "grids": [
+                        {"name": "Luzon", "status": overall_status, "capacity": None, "current": None},
+                        {"name": "Visayas", "status": "NORMAL", "capacity": None, "current": None},
+                        {"name": "Mindanao", "status": "NORMAL", "capacity": None, "current": None},
+                    ],
+                }
 
         return JSONResponse({"success": True, "data": grid_data})
     except Exception as e:
