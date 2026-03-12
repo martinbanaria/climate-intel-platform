@@ -17,7 +17,7 @@ Climate-Smart Market Intelligence Platform for the Philippines.
 | Scheduler | GitHub Actions cron (NOT scheduler.py) |
 
 ## URLs
-- Frontend (prod): https://frontend-qxb1lmjh3-martin-banarias-projects.vercel.app
+- Frontend (prod): https://climate-intel-main.vercel.app
 - Backend (prod): https://climate-intel-api.onrender.com
 - GitHub: https://github.com/martinbanaria/climate-intel-platform
 - MongoDB: `mongodb+srv://climateintel_admin:Sv5sVFw7gdHtydlq@climate-intel.q1jjn3g.mongodb.net/?appName=climate-intel`
