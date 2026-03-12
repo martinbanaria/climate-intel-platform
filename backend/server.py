@@ -8,7 +8,7 @@ import os
 import ssl
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 import json
 import certifi
@@ -1116,6 +1116,209 @@ async def get_basket_templates():
     except Exception as e:
         logger.error(f"Error fetching basket templates: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== TELEGRAM BOT ENDPOINTS ==========
+
+from services.telegram_bot import send_message, build_daily_alert, broadcast
+
+
+@api_router.post("/telegram/subscribe")
+async def telegram_subscribe(chat_id: str = Query(..., description="Telegram chat ID")):
+    """Subscribe a Telegram chat ID to daily price alerts."""
+    await db.telegram_subscribers.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"chat_id": chat_id, "active": True, "subscribed_at": datetime.utcnow().isoformat()}},
+        upsert=True,
+    )
+    ok = await send_message(chat_id, "✅ You're subscribed to Climate Intel daily price alerts!\n\nYou'll receive a morning briefing every weekday with top price movements, climate data, and grid status.")
+    return JSONResponse({"success": True, "message": "Subscribed", "welcome_sent": ok})
+
+
+@api_router.post("/telegram/unsubscribe")
+async def telegram_unsubscribe(chat_id: str = Query(...)):
+    """Unsubscribe a chat ID from alerts."""
+    await db.telegram_subscribers.update_one({"chat_id": chat_id}, {"$set": {"active": False}})
+    return JSONResponse({"success": True, "message": "Unsubscribed"})
+
+
+@api_router.get("/telegram/subscribers")
+async def telegram_subscribers():
+    """Return subscriber count."""
+    total = await db.telegram_subscribers.count_documents({})
+    active = await db.telegram_subscribers.count_documents({"active": True})
+    return JSONResponse({"success": True, "data": {"total": total, "active": active}})
+
+
+@api_router.post("/telegram/send-daily-alert")
+async def telegram_send_daily_alert():
+    """Trigger daily price alert broadcast to all active subscribers."""
+    try:
+        # Fetch data for the alert
+        items_cursor = db.market_items.find({}).sort("priceStatus", 1).limit(10)
+        items = []
+        async for doc in items_cursor:
+            doc["_id"] = str(doc["_id"])
+            items.append(doc)
+
+        metrics = []
+        async for doc in db.climate_metrics.find({}):
+            doc["_id"] = str(doc["_id"])
+            metrics.append(doc)
+
+        grid = await ngcp_scraper.scrape()
+
+        message = build_daily_alert(items, metrics, grid)
+        stats = await broadcast(db, message)
+
+        return JSONResponse({"success": True, "data": stats, "message_preview": message[:200]})
+    except Exception as e:
+        logger.error(f"Telegram broadcast error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== HISTORICAL PRICE ARCHIVE ENDPOINTS ==========
+
+from services.historical_backfill import backfill_date_range
+
+
+@api_router.post("/integration/run-historical-backfill")
+async def run_historical_backfill(
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+):
+    """
+    Backfill price_history collection from DA Bantay Presyo PDFs for a date range.
+    Weekends are skipped automatically. Rate-limited at 1.5s per page.
+    WARNING: Large ranges (e.g. 1 year) will take ~90 minutes — run as a one-time job.
+    """
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD")
+
+    if end < start:
+        raise HTTPException(status_code=400, detail="end_date must be >= start_date")
+
+    delta_days = (end - start).days
+    if delta_days > 365:
+        raise HTTPException(status_code=400, detail="Date range cannot exceed 365 days per request")
+
+    stats = await backfill_date_range(db, start, end)
+    return JSONResponse({"success": True, "data": stats})
+
+
+@api_router.get("/price-history")
+async def get_price_history(
+    name: str = Query(..., description="Commodity name (exact or partial)"),
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+):
+    """Return daily price history for a commodity from the price_history collection."""
+    query: dict = {"name": {"$regex": name, "$options": "i"}}
+    date_filter: dict = {}
+    if start_date:
+        date_filter["$gte"] = start_date
+    if end_date:
+        date_filter["$lte"] = end_date
+    if date_filter:
+        query["date"] = date_filter
+
+    cursor = db.price_history.find(query, {"_id": 0}).sort("date", 1).limit(500)
+    records = []
+    async for doc in cursor:
+        records.append(doc)
+
+    return JSONResponse({"success": True, "count": len(records), "data": records})
+
+
+# ========== CROWDSOURCED PRICING ENDPOINTS ==========
+
+
+@api_router.post("/crowdsource/report")
+async def crowdsource_report(
+    item_name: str = Query(..., description="Commodity name"),
+    price: float = Query(..., description="Observed price (PHP)"),
+    market: str = Query(..., description="Market/store where observed"),
+    unit: str = Query(default="kg", description="Unit (kg, piece, bundle, L)"),
+    reporter_id: Optional[str] = Query(default=None, description="Anonymous session ID for deduplication"),
+):
+    """
+    Submit a crowdsourced price report from a user who observed actual market prices.
+    Stored in `crowd_price_reports` collection with status=pending until validated.
+    """
+    if price <= 0 or price > 10000:
+        raise HTTPException(status_code=400, detail="Price must be between 0 and 10,000 PHP")
+
+    doc = {
+        "item_name": item_name.strip(),
+        "price": round(price, 2),
+        "market": market.strip(),
+        "unit": unit,
+        "reporter_id": reporter_id,
+        "status": "pending",
+        "reported_at": datetime.utcnow().isoformat(),
+    }
+    result = await db.crowd_price_reports.insert_one(doc)
+    return JSONResponse({"success": True, "report_id": str(result.inserted_id)})
+
+
+@api_router.get("/crowdsource/reports")
+async def get_crowdsource_reports(
+    item_name: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default="pending"),
+    limit: int = Query(default=50, le=200),
+):
+    """List crowdsourced price reports (for moderation or display)."""
+    query: dict = {}
+    if item_name:
+        query["item_name"] = {"$regex": item_name, "$options": "i"}
+    if status:
+        query["status"] = status
+
+    cursor = db.crowd_price_reports.find(query, {"_id": 0}).sort("reported_at", -1).limit(limit)
+    reports = []
+    async for doc in cursor:
+        reports.append(doc)
+
+    return JSONResponse({"success": True, "count": len(reports), "data": reports})
+
+
+@api_router.get("/crowdsource/summary")
+async def crowdsource_summary(item_name: str = Query(...)):
+    """
+    Return crowd-vs-official price comparison for a commodity.
+    Aggregates last 7 days of approved crowd reports against the official DA price.
+    """
+    cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+    pipeline = [
+        {"$match": {"item_name": {"$regex": item_name, "$options": "i"}, "status": "approved", "reported_at": {"$gte": cutoff}}},
+        {"$group": {"_id": "$item_name", "avg_crowd_price": {"$avg": "$price"}, "min_price": {"$min": "$price"}, "max_price": {"$max": "$price"}, "report_count": {"$sum": 1}}},
+    ]
+    results = []
+    async for doc in db.crowd_price_reports.aggregate(pipeline):
+        results.append(doc)
+
+    # Get official DA price
+    official = await db.market_items.find_one({"name": {"$regex": item_name, "$options": "i"}}, {"currentPrice": 1, "name": 1})
+    official_price = official.get("currentPrice") if official else None
+    official_name = official.get("name") if official else item_name
+
+    if results:
+        r = results[0]
+        diff_pct = round((r["avg_crowd_price"] - official_price) / official_price * 100, 1) if official_price else None
+        return JSONResponse({"success": True, "data": {
+            "item_name": official_name,
+            "official_price": official_price,
+            "avg_crowd_price": round(r["avg_crowd_price"], 2),
+            "min_crowd_price": r["min_price"],
+            "max_crowd_price": r["max_price"],
+            "report_count": r["report_count"],
+            "vs_official_pct": diff_pct,
+        }})
+    else:
+        return JSONResponse({"success": True, "data": {"item_name": official_name, "official_price": official_price, "avg_crowd_price": None, "report_count": 0}})
 
 
 # ========== UTILITY ENDPOINTS ==========

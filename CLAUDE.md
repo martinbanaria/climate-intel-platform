@@ -38,6 +38,8 @@ backend/
     doe_integration.py               # NEW — real DOE issuances via SSR scrape -> MongoDB
     doe_document_scraper.py          # Legacy mock PPA data (ERC blocked by Cloudflare)
     doe_fuel_integration.py          # DOE fuel price scraper
+    telegram_bot.py                  # NEW — Telegram Bot API broadcaster (send_message, broadcast, build_daily_alert)
+    historical_backfill.py           # NEW — DA PDF backfill over arbitrary date range → price_history collection
     web_crawler.py                   # Generic async scraper (BeautifulSoup)
     ocr_service.py                   # PyPDF2 + PyTesseract
 
@@ -129,6 +131,17 @@ POST /api/integration/run-doe-update           # NEW — scrape DOE issuances
 GET  /api/energy/doe-circulars    # REAL — doe.gov.ph SSR scrape (was mock)
 GET  /api/energy/ppa-status       # MOCK — ERC blocked by Cloudflare
 GET  /api/climate-metrics         # REAL — WeatherAPI.com
+POST /api/telegram/subscribe      # NEW — subscribe chat_id to daily alerts
+POST /api/telegram/unsubscribe    # NEW
+GET  /api/telegram/subscribers    # NEW — subscriber count
+POST /api/telegram/send-daily-alert  # NEW — broadcast morning briefing to all subscribers
+POST /api/integration/run-historical-backfill?start_date=&end_date=  # NEW — DA PDF backfill
+GET  /api/price-history?name=&start_date=&end_date=  # NEW — daily snapshots from price_history
+POST /api/crowdsource/report      # NEW — submit observed market price
+GET  /api/crowdsource/reports     # NEW — list crowd reports (moderation)
+GET  /api/crowdsource/summary     # NEW — crowd vs official price comparison
+GET  /api/basket/cheapest         # Feature D — cheapest basket by comma-separated items
+GET  /api/basket/templates        # Feature D — preset baskets with live prices
 ```
 
 ## WeatherAPI Integration (completed March 2026)
@@ -171,12 +184,12 @@ GET  /api/climate-metrics         # REAL — WeatherAPI.com
 - [x] A — GitHub Actions daily auto-refresh
 - [x] B — Fix DA Bantay Presyo integration (3 bugs)
 - [x] C — Replace mocked grid status + WESM prices with real scraped data
+- [x] D — Cheapest Grocery Basket feature (GET /api/basket/cheapest + /api/basket/templates)
+- [x] E — Telegram bot for daily price alerts (needs TELEGRAM_BOT_TOKEN env var on Render)
 - [x] F — Replace mock climate metrics with real WeatherAPI data
 - [x] G — Real DOE circulars (ERC blocked by Cloudflare; PPA stays mock)
-- [ ] D — Cheapest Grocery Basket feature (most unique/viral)
-- [ ] E — Telegram/Viber bot for daily price alerts
-- [ ] H — Multi-year historical price archive from DA archives
-- [ ] I — Crowdsourced actual vs official price reporting
+- [x] H — Multi-year historical price archive (POST /api/integration/run-historical-backfill)
+- [x] I — Crowdsourced pricing (POST /api/crowdsource/report, GET /api/crowdsource/summary)
 
 ## Environment Variables
 ```

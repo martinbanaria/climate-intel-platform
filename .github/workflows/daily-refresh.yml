@@ -110,6 +110,18 @@ jobs:
             echo "::warning::DOE update returned: $RESPONSE"
           fi
 
+      - name: Send Telegram daily alert
+        # Broadcasts morning price briefing to all subscribed Telegram users
+        run: |
+          echo "Sending Telegram daily alert..."
+          RESPONSE=$(curl -s -X POST \
+            --max-time 60 \
+            -H "Content-Type: application/json" \
+            https://climate-intel-api.onrender.com/api/telegram/send-daily-alert)
+          echo "Response: $RESPONSE"
+          SENT=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data', {}).get('sent', 0))" 2>/dev/null)
+          echo "Alert sent to $SENT subscribers"
+
       - name: Verify data freshness
         # Confirm the integration actually updated the database
         run: |
