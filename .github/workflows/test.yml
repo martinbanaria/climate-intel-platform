@@ -1,0 +1,50 @@
+name: Backend Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+
+jobs:
+  test:
+    name: Run Backend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install pytest requests
+
+      - name: Wake Render backend
+        run: |
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 https://climate-intel-api.onrender.com/api/)
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Backend is awake"
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Run pytest against production
+        env:
+          REACT_APP_BACKEND_URL: https://climate-intel-api.onrender.com
+        run: |
+          cd backend
+          pytest tests/ -v --tb=short

@@ -21,6 +21,7 @@ const Home = () => {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   // Fetch categories on mount
   useEffect(() => {
@@ -28,11 +29,17 @@ const Home = () => {
     fetchAnalytics();
   }, []);
 
-  // Fetch market items when filters change
+  // Debounce search: wait 400ms after user stops typing before firing API call
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Fetch market items when filters change (uses debounced search)
   useEffect(() => {
     fetchMarketItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCategory, searchQuery, sortBy]);
+  }, [selectedCategory, debouncedSearch, sortBy]);
 
   const fetchCategories = async () => {
     try {
@@ -70,7 +77,7 @@ const Home = () => {
     try {
       const params = {
         category: selectedCategory !== 'all' ? selectedCategory : undefined,
-        search: searchQuery || undefined,
+        search: debouncedSearch || undefined,
         sort: sortBy,
         limit: 100
       };

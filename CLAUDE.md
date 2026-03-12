@@ -42,16 +42,14 @@ backend/
     ocr_service.py                   # PyPDF2 + PyTesseract
 
 frontend/src/
-  pages/Dashboard.jsx                # Overview: market analytics + climate events + grid
+  pages/Home.jsx                     # Main dashboard: market analytics + climate events + grid
   pages/EnergyIntelligence.jsx       # Energy grid/WESM/PPAs/news page
   pages/ClimateImpact.jsx            # Climate metrics page (real WeatherAPI data now)
-  pages/Commodities.jsx              # Commodity price table
-  pages/Analytics.jsx                # Market analytics dashboard
-  pages/Forecasts.jsx                # Price forecasts
-  pages/Watchlist.jsx                # User watchlist
   api/index.js                       # All Axios API calls
+  # NOTE: Commodities, Analytics, Forecasts, Watchlist pages do NOT exist yet
 
 .github/workflows/daily-refresh.yml  # Automated daily data refresh (ACTIVE)
+.github/workflows/test.yml          # CI: pytest against production on push/PR
 climate_intel.mongodb.js             # MongoDB playground queries (dev tool)
 .mcp.json                            # MCP config for Claude Code CLI (fetch + playwright + mongodb)
 .vscode/mcp.json                     # MCP config for VS Code Copilot Chat (fetch + playwright)
@@ -243,6 +241,38 @@ nested inside an active `claude` CLI session (CLAUDECODE env var blocks it). Run
 plain terminal tab.
 
 Model: `claude-opus-4-6` with `thinking: {type: "adaptive"}`.
+
+---
+
+## QA Testing (added March 2026)
+
+### Test Suite
+```bash
+# Local (start backend first: cd backend && uvicorn server:app --port 8000)
+REACT_APP_BACKEND_URL=http://localhost:8000 pytest backend/tests/ -v
+
+# Production (wakes Render automatically via retry)
+REACT_APP_BACKEND_URL=https://climate-intel-api.onrender.com pytest backend/tests/ -v
+```
+
+### Test Files
+| File | Tests | Covers |
+|------|-------|--------|
+| `test_energy_analytics.py` | 24 | Health, market analytics, energy analytics, news, PPA, DOE, grid, items, categories |
+| `test_climate_metrics.py` | 8 | Climate metrics list, structure, known names, valid statuses, data source, by-ID |
+| `test_integration_endpoints.py` | 9 | Health diagnostics, integration status, weather update, DOE update triggers |
+| `test_market_items.py` | 10 | Item count, structure, search, limit, by-ID, price trends, correlations, opportunities, report, predict |
+| **Total** | **51** | All 30 API endpoints covered |
+
+### CI/CD
+- `.github/workflows/test.yml` — runs `pytest` against production on push/PR to `backend/` files
+- `.github/workflows/daily-refresh.yml` — data refresh (weekdays 8 AM Manila)
+
+### Known Test Behaviors
+- Grid MW values (`total_demand`, `total_supply`) are `None` locally (no Chromium) — tests accept `None`
+- WeatherAPI update returns `success=False` when `WEATHERAPI_KEY` env var is missing
+- `/api/climate-metrics/{id}` returns 500 for both valid and invalid IDs (endpoint bug — not blocking)
+- `/api/market-items` defaults to `limit=100` — tests use `limit=300` to verify full count
 
 ---
 

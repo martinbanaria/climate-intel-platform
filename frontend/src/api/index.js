@@ -3,6 +3,9 @@ import axios from 'axios';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// 30s timeout — prevents silent 120s hangs on Render cold-start
+axios.defaults.timeout = 30000;
+
 // Market Items API
 export const marketAPI = {
     getAll: async (params = {}) => {

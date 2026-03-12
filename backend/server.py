@@ -173,6 +173,8 @@ async def get_market_item(item_id: str):
         if "updatedAt" in item:
             item["updatedAt"] = item["updatedAt"].isoformat()
         return JSONResponse({"success": True, "data": item})
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching market item: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -244,7 +246,15 @@ async def get_climate_metric(metric_id: str):
             raise HTTPException(status_code=404, detail="Metric not found")
 
         metric["id"] = str(metric.pop("_id"))
+        if "lastUpdated" in metric:
+            metric["lastUpdated"] = metric["lastUpdated"].isoformat()
+        if "createdAt" in metric:
+            metric["createdAt"] = metric["createdAt"].isoformat()
+        if "updatedAt" in metric:
+            metric["updatedAt"] = metric["updatedAt"].isoformat()
         return JSONResponse({"success": True, "data": metric})
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching climate metric: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -865,6 +875,40 @@ def _build_price_alerts(price_trends: dict) -> list:
     return alerts
 
 
+def _derive_market_outlook(price_trends: dict) -> dict:
+    """Compute market outlook from real WESM price levels (absolute PHP/MWh)."""
+    luzon_current = price_trends.get("wesm_luzon", {}).get("current", 0) or 0
+    visayas_current = price_trends.get("wesm_visayas", {}).get("current", 0) or 0
+    mindanao_current = price_trends.get("wesm_mindanao", {}).get("current", 0) or 0
+
+    active = [p for p in [luzon_current, visayas_current, mindanao_current] if p > 0]
+    avg_current = sum(active) / len(active) if active else 0
+
+    if avg_current > 8000:
+        short_term, price_forecast, supply_adequacy = "rising", "moderate_increase", "constrained"
+    elif avg_current > 6000:
+        short_term, price_forecast, supply_adequacy = "elevated", "stable", "moderate"
+    else:
+        short_term, price_forecast, supply_adequacy = "stable", "stable", "sufficient"
+
+    key_drivers = []
+    if luzon_current > 8000:
+        key_drivers.append(f"Luzon spot price high at ₱{luzon_current:,.0f}/MWh")
+    elif luzon_current > 6000:
+        key_drivers.append(f"Luzon spot price elevated at ₱{luzon_current:,.0f}/MWh")
+    elif luzon_current > 0:
+        key_drivers.append(f"Luzon spot price normal at ₱{luzon_current:,.0f}/MWh")
+    if visayas_current > 7000:
+        key_drivers.append(f"Visayas spot price elevated at ₱{visayas_current:,.0f}/MWh")
+    key_drivers += ["Increasing RE capacity additions", "Coal plant retirements"]
+    return {
+        "short_term": short_term,
+        "supply_adequacy": supply_adequacy,
+        "price_forecast": price_forecast,
+        "key_drivers": key_drivers[:4],
+    }
+
+
 @api_router.get("/energy/analytics")
 async def get_energy_analytics():
     """Get energy market analytics including price trends and contract insights"""
@@ -938,17 +982,7 @@ async def get_energy_analytics():
             },
             "technology_breakdown": tech_breakdown,
             "price_trends": price_trends,
-            "market_outlook": {
-                "short_term": "stable",
-                "supply_adequacy": "sufficient",
-                "price_forecast": "moderate_increase",
-                "key_drivers": [
-                    "Increasing RE capacity additions",
-                    "Coal plant retirements",
-                    "Growing industrial demand",
-                    "LNG price volatility",
-                ],
-            },
+            "market_outlook": _derive_market_outlook(price_trends),
             "alerts": _build_price_alerts(price_trends),
         }
 
@@ -961,6 +995,126 @@ async def get_energy_analytics():
         )
     except Exception as e:
         logger.error(f"Error generating energy analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== GROCERY BASKET ENDPOINTS ==========
+
+BASKET_TEMPLATES = {
+    "basic_family": {
+        "name": "Basic Family Basket",
+        "description": "Essential items for a Filipino family of 4 (weekly)",
+        "items": ["rice", "chicken", "pork", "bangus", "tomato", "onion", "garlic", "kangkong", "egg"],
+    },
+    "budget": {
+        "name": "Budget Basket",
+        "description": "Low-cost staples for daily meals",
+        "items": ["rice", "sardines", "egg", "kangkong", "mongo", "camote"],
+    },
+    "vegetarian": {
+        "name": "Vegetarian Basket",
+        "description": "Plant-based essentials",
+        "items": ["rice", "tofu", "kangkong", "tomato", "onion", "garlic", "eggplant", "sitaw"],
+    },
+}
+
+
+async def _find_cheapest_match(db, item_name: str):
+    """Return cheapest market_item whose name matches item_name (case-insensitive)."""
+    cursor = db.market_items.find(
+        {"name": {"$regex": item_name, "$options": "i"}}
+    ).sort("currentPrice", 1).limit(1)
+    matches = await cursor.to_list(length=1)
+    if not matches:
+        return None
+    item = matches[0]
+    item["id"] = str(item.pop("_id"))
+    for field in ("lastUpdated", "createdAt", "updatedAt"):
+        if field in item and hasattr(item[field], "isoformat"):
+            item[field] = item[field].isoformat()
+    return item
+
+
+@api_router.get("/basket/cheapest")
+async def get_cheapest_basket(
+    items: str = Query(..., description="Comma-separated commodity names, e.g. rice,chicken,tomato"),
+):
+    """Build the cheapest basket from tracked market prices for the requested items."""
+    try:
+        item_names = [n.strip() for n in items.split(",") if n.strip()]
+        if not item_names:
+            raise HTTPException(status_code=400, detail="Provide at least one item name")
+
+        results = []
+        not_found = []
+        total_cost = 0.0
+
+        for name in item_names:
+            match = await _find_cheapest_match(db, name)
+            if match:
+                results.append({
+                    "requested": name,
+                    "matched": match["name"],
+                    "category": match.get("category"),
+                    "price": match.get("currentPrice"),
+                    "unit": match.get("unit"),
+                    "status": match.get("status"),
+                    "savings": match.get("savings", 0),
+                })
+                total_cost += match.get("currentPrice", 0)
+            else:
+                not_found.append(name)
+
+        return JSONResponse({
+            "success": True,
+            "basket": results,
+            "total_cost": round(total_cost, 2),
+            "item_count": len(results),
+            "not_found": not_found,
+            "currency": "PHP",
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error building basket: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/basket/templates")
+async def get_basket_templates():
+    """Return preset basket templates with live cheapest prices from market_items."""
+    try:
+        output = []
+        for template_id, template in BASKET_TEMPLATES.items():
+            results = []
+            total_cost = 0.0
+            not_found = []
+            for name in template["items"]:
+                match = await _find_cheapest_match(db, name)
+                if match:
+                    results.append({
+                        "requested": name,
+                        "matched": match["name"],
+                        "price": match.get("currentPrice"),
+                        "unit": match.get("unit"),
+                        "status": match.get("status"),
+                    })
+                    total_cost += match.get("currentPrice", 0)
+                else:
+                    not_found.append(name)
+            output.append({
+                "id": template_id,
+                "name": template["name"],
+                "description": template["description"],
+                "basket": results,
+                "total_cost": round(total_cost, 2),
+                "item_count": len(results),
+                "not_found": not_found,
+                "currency": "PHP",
+            })
+        return JSONResponse({"success": True, "count": len(output), "data": output})
+    except Exception as e:
+        logger.error(f"Error fetching basket templates: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
