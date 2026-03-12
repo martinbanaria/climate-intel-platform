@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import ClimateImpact from "./pages/ClimateImpact";
 import EnergyIntelligence from "./pages/EnergyIntelligence";
+import GroceryBasket from "./pages/GroceryBasket";
 import { Toaster } from "./components/ui/sonner";
 
 function App() {
@@ -13,6 +14,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/climate" element={<ClimateImpact />} />
           <Route path="/energy" element={<EnergyIntelligence />} />
+          <Route path="/basket" element={<GroceryBasket />} />
         </Routes>
       </BrowserRouter>
       <Toaster />

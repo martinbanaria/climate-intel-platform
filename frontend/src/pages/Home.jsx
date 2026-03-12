@@ -9,6 +9,8 @@ import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { toast } from '../hooks/use-toast';
 
+const ITEMS_PER_PAGE = 24;
+
 const Home = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('best');
@@ -22,6 +24,7 @@ const Home = () => {
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
 
   // Fetch categories on mount
   useEffect(() => {
@@ -75,11 +78,12 @@ const Home = () => {
   const fetchMarketItems = async () => {
     setLoading(true);
     try {
+      setVisibleCount(ITEMS_PER_PAGE);
       const params = {
         category: selectedCategory !== 'all' ? selectedCategory : undefined,
         search: debouncedSearch || undefined,
         sort: sortBy,
-        limit: 100
+        limit: 500
       };
 
       const response = await marketAPI.getAll(params);
@@ -436,7 +440,7 @@ const Home = () => {
 
           {/* Market Items Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="market-items-grid">
-            {filteredItems.map((item) => (
+            {filteredItems.slice(0, visibleCount).map((item) => (
               <MarketCard
                 key={item.id}
                 item={item}
@@ -445,6 +449,23 @@ const Home = () => {
               />
             ))}
           </div>
+
+          {/* Show More / item count */}
+          {filteredItems.length > 0 && (
+            <div className="text-center mt-6 space-y-2">
+              <p className="text-sm text-gray-500">
+                Showing {Math.min(visibleCount, filteredItems.length)} of {filteredItems.length} items
+              </p>
+              {visibleCount < filteredItems.length && (
+                <Button
+                  onClick={() => setVisibleCount(prev => prev + ITEMS_PER_PAGE)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-8"
+                >
+                  Show More ({filteredItems.length - visibleCount} remaining)
+                </Button>
+              )}
+            </div>
+          )}
 
           {filteredItems.length === 0 && !loading && (
             <div className="text-center py-12">

@@ -7,10 +7,9 @@ const Navbar = () => {
 
   const navItems = [
     { name: 'Market Prices', path: '/' },
+    { name: 'Grocery Basket', path: '/basket' },
     { name: 'Climate Impact', path: '/climate' },
     { name: 'Energy Intelligence', path: '/energy' },
-    { name: 'Forecasts', path: '/forecasts' },
-    { name: 'Watchlist', path: '/watchlist' }
   ];
 
   return (

@@ -183,14 +183,13 @@ async def get_market_item(item_id: str):
 
 @api_router.get("/best-deals")
 async def get_best_deals(limit: int = 8):
-    """Get top deals (MURA items sorted by savings)"""
+    """Get top deals — items with biggest savings (price below average)"""
     try:
-        # Query for MURA items
-        query = {"status": "MURA"}
-        cursor = db.market_items.find(query)
-        items = await cursor.to_list(length=100)
+        # Get all items where current price is below average (savings > 0)
+        cursor = db.market_items.find({"savings": {"$gt": 0}})
+        items = await cursor.to_list(length=200)
 
-        # Convert ObjectId and sort by savings
+        # Convert ObjectId and datetime
         for item in items:
             item["id"] = str(item.pop("_id"))
             if "lastUpdated" in item:
@@ -200,6 +199,7 @@ async def get_best_deals(limit: int = 8):
             if "updatedAt" in item:
                 item["updatedAt"] = item["updatedAt"].isoformat()
 
+        # Sort by savings descending (biggest deals first)
         items.sort(key=lambda x: x.get("savings", 0), reverse=True)
 
         return JSONResponse(
