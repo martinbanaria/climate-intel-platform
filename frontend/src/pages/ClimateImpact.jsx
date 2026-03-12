@@ -59,6 +59,60 @@ const ClimateImpact = () => {
     );
   };
 
+  // Compute market impact insights from real metric values
+  const computeInsights = (metrics) => {
+    const get = (name) => metrics.find(m => m.metric_name === name || m.name === name) || {};
+    const temp = parseFloat(get('Temperature').value) || 28;
+    const rainfall = parseFloat(get('Rainfall').value) || 0;
+    const humidity = parseFloat(get('Humidity').value) || 70;
+    const droughtIdx = parseFloat(get('Drought Index').value) || 3;
+    const uv = parseFloat(get('UV Index').value) || 7;
+
+    const insights = [];
+
+    // Temperature insight
+    if (temp > 33) {
+      insights.push({ color: 'text-red-400', label: `Extreme heat (${temp}°C)`, body: 'causing heat stress in livestock — poultry and meat prices may rise.' });
+    } else if (temp > 30) {
+      insights.push({ color: 'text-amber-400', label: `High temperature (${temp}°C)`, body: 'may stress poultry production. Monitor meat and egg prices.' });
+    } else {
+      insights.push({ color: 'text-emerald-400', label: `Favorable temperature (${temp}°C)`, body: 'supporting vegetable and crop growth, keeping leafy green prices stable.' });
+    }
+
+    // Rainfall / drought insight
+    if (droughtIdx > 5) {
+      insights.push({ color: 'text-red-400', label: `Drought index ${droughtIdx.toFixed(1)} (elevated)`, body: 'soil moisture below optimal — spice and vegetable yields may be constrained.' });
+    } else if (rainfall > 20) {
+      insights.push({ color: 'text-amber-400', label: `Heavy rainfall (${rainfall}mm)`, body: 'may damage leafy vegetables; flood risk in low-lying farms.' });
+    } else if (rainfall > 0) {
+      insights.push({ color: 'text-emerald-400', label: `Moderate rainfall (${rainfall}mm)`, body: 'maintaining soil moisture for rice and vegetable production.' });
+    } else {
+      insights.push({ color: 'text-amber-400', label: 'No rainfall today', body: `dry conditions (drought index ${droughtIdx.toFixed(1)}) — irrigation costs elevated for rice and spice farms.` });
+    }
+
+    // Humidity insight
+    if (humidity > 85) {
+      insights.push({ color: 'text-amber-400', label: `High humidity (${humidity}%)`, body: 'increases disease pressure on leafy vegetables; monitor for supply disruptions.' });
+    } else if (humidity < 50) {
+      insights.push({ color: 'text-amber-400', label: `Low humidity (${humidity}%)`, body: 'may stress crops and reduce yields.' });
+    } else {
+      insights.push({ color: 'text-emerald-400', label: `Optimal humidity (${humidity}%)`, body: 'supporting healthy crop development with low disease risk.' });
+    }
+
+    // UV insight
+    if (uv > 10) {
+      insights.push({ color: 'text-orange-400', label: `Very high UV index (${uv})`, body: 'intensifying heat on livestock; watch for price impact on poultry and eggs.' });
+    } else if (uv < 4) {
+      insights.push({ color: 'text-blue-400', label: `Low UV index (${uv})`, body: 'reduced sunlight may slow crop maturation — minor supply effect.' });
+    } else {
+      insights.push({ color: 'text-emerald-400', label: `Normal UV index (${uv})`, body: 'supporting photosynthesis without crop stress.' });
+    }
+
+    return insights;
+  };
+
+  const marketInsights = climateMetrics.length > 0 ? computeInsights(climateMetrics) : [];
+
   // Calculate overall climate health score
   const goodCount = filteredMetrics.filter(m => m.status === 'GOOD').length;
   const moderateCount = filteredMetrics.filter(m => m.status === 'MODERATE').length;
@@ -134,22 +188,23 @@ const ClimateImpact = () => {
           </Card>
         </div>
 
-        {/* Market Impact Summary */}
-        <div className="bg-gradient-to-r from-blue-900/30 to-emerald-900/30 border border-blue-500/30 rounded-lg p-6 mb-8">
-          <div className="flex items-start space-x-4">
-            <Info className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" />
-            <div>
-              <h3 className="text-lg font-semibold text-white mb-1">Key Market Impact Insights</h3>
-              <p className="text-xs text-gray-500 mb-3">Estimated — these are general guidelines, not computed from live metric values.</p>
-              <div className="space-y-2 text-sm text-gray-300">
-                <p>• <span className="text-emerald-400 font-medium">Lower temperatures</span> are supporting vegetable growth, keeping prices down for lettuce, broccoli, and leafy greens.</p>
-                <p>• <span className="text-emerald-400 font-medium">Adequate rainfall</span> has improved soil moisture, stabilizing rice and vegetable supplies across NCR.</p>
-                <p>• <span className="text-amber-400 font-medium">Higher humidity</span> may increase disease pressure on crops, monitor for potential price impacts in coming weeks.</p>
-                <p>• <span className="text-orange-400 font-medium">Elevated UV levels</span> are affecting livestock, potentially increasing poultry and meat prices if conditions persist.</p>
+        {/* Market Impact Summary — computed from live WeatherAPI metrics */}
+        {marketInsights.length > 0 && (
+          <div className="bg-gradient-to-r from-blue-900/30 to-emerald-900/30 border border-blue-500/30 rounded-lg p-6 mb-8">
+            <div className="flex items-start space-x-4">
+              <Info className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" />
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-1">Key Market Impact Insights</h3>
+                <p className="text-xs text-gray-500 mb-3">Computed from live WeatherAPI.com metrics (Manila, NCR).</p>
+                <div className="space-y-2 text-sm text-gray-300">
+                  {marketInsights.map((ins, i) => (
+                    <p key={i}>• <span className={`${ins.color} font-medium`}>{ins.label}</span> {ins.body}</p>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Search Bar */}
         <div className="mb-6">
