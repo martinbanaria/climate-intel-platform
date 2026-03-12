@@ -86,8 +86,12 @@ const Home = () => {
       
       if (response.success) {
         setFilteredItems(response.data);
-        if (response.data.length > 0 && response.data[0].lastUpdated) {
-          setLastUpdate(new Date(response.data[0].lastUpdated));
+        // Use the most recent lastUpdated across all items
+        const dates = response.data
+          .map(d => d.lastUpdated ? new Date(d.lastUpdated) : null)
+          .filter(Boolean);
+        if (dates.length > 0) {
+          setLastUpdate(new Date(Math.max(...dates)));
         }
       }
     } catch (error) {

@@ -117,7 +117,7 @@ async def get_market_items(
             query["name"] = {"$regex": search, "$options": "i"}
 
         # Get items from database
-        cursor = db.market_items.find(query).limit(limit)
+        cursor = db.market_items.find(query).sort("lastUpdated", -1).limit(limit)
         items = await cursor.to_list(length=limit)
 
         # Convert ObjectId and datetime to string

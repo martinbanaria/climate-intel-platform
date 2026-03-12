@@ -356,7 +356,17 @@ const EnergyIntelligence = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {ppaList.map((ppa, idx) => (
+                    {ppaList.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center">
+                          <div className="text-gray-500">
+                            <AlertCircle className="w-8 h-8 mx-auto mb-3 text-gray-600" />
+                            <p className="text-sm font-medium text-gray-400 mb-1">PPA data currently unavailable</p>
+                            <p className="text-xs text-gray-600">ERC (erc.gov.ph) is protected by Cloudflare and cannot be scraped. This section will be populated once an alternative data source is available.</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : ppaList.map((ppa, idx) => (
                       <tr key={idx} className="border-b border-slate-700 hover:bg-slate-700/50" data-testid={`ppa-row-${idx}`}>
                         <td className="p-4">
                           <div className="flex items-center space-x-3">
@@ -426,14 +436,21 @@ const EnergyIntelligence = () => {
               <h2 className="text-xl font-bold text-white mb-4">DOE Circulars & Orders</h2>
               <div className="space-y-3">
                 {circulars.map((circular, idx) => (
-                  <Card key={idx} className="bg-slate-800 border-slate-700 p-5 hover:border-emerald-500/50 transition-colors" data-testid={`circular-${idx}`}>
+                  <a
+                    key={idx}
+                    href={circular.url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                  <Card className="bg-slate-800 border-slate-700 p-5 hover:border-emerald-500/50 transition-colors cursor-pointer" data-testid={`circular-${idx}`}>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center space-x-2 mb-2">
                           <FileText className="w-4 h-4 text-emerald-400" />
-                          <span className="text-xs text-emerald-400 font-medium">{circular.document_number}</span>
+                          <span className="text-xs text-emerald-400 font-medium">{circular.document_number || circular.circular_number}</span>
                         </div>
-                        <h3 className="text-white font-medium mb-2">{circular.title}</h3>
+                        <h3 className="text-white font-medium mb-2 hover:text-emerald-400 transition-colors">{circular.title}</h3>
                         <p className="text-sm text-gray-400">{circular.summary}</p>
                         {circular.effective_date && (
                           <p className="text-xs text-gray-500 mt-2">Effective: {circular.effective_date}</p>
@@ -442,6 +459,7 @@ const EnergyIntelligence = () => {
                       <span className="text-xs text-gray-500 whitespace-nowrap ml-4">{circular.date}</span>
                     </div>
                   </Card>
+                  </a>
                 ))}
               </div>
             </div>
