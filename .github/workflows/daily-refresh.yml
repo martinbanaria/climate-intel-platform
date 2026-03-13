@@ -128,6 +128,29 @@ jobs:
             echo "::warning::Fuel update returned: $RESPONSE"
           fi
 
+      - name: Update RE contracts from DOE (Monday only)
+        # DOE PDFs update monthly — only scrape on Mondays to avoid redundant downloads
+        run: |
+          DOW=$(date +%u)
+          if [ "$DOW" != "1" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Skipping PPA update — only runs on Mondays (today is day $DOW)"
+            exit 0
+          fi
+          echo "Updating RE contracts from DOE legacy site PDFs..."
+          RESPONSE=$(curl -s -X POST \
+            --max-time 300 \
+            -H "Content-Type: application/json" \
+            https://climate-intel-api.onrender.com/api/integration/run-ppa-update)
+          echo "Response: $RESPONSE"
+
+          SUCCESS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success', False))" 2>/dev/null)
+          if [ "$SUCCESS" = "True" ]; then
+            COUNT=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('total_contracts', 'unknown'))" 2>/dev/null)
+            echo "RE contracts updated — $COUNT contracts refreshed"
+          else
+            echo "::warning::PPA update returned: $RESPONSE"
+          fi
+
       - name: Send Telegram daily alert
         # Broadcasts morning price briefing to all subscribed Telegram users
         run: |

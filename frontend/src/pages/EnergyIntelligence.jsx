@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, TrendingUp, TrendingDown, Activity, FileText, Loader2, Sun, Wind, Droplet, Flame, BarChart3, AlertCircle, ExternalLink, RefreshCw } from 'lucide-react';
+import { Zap, TrendingUp, TrendingDown, Activity, FileText, Loader2, Sun, Wind, Droplet, Flame, BarChart3, AlertCircle, ExternalLink, RefreshCw, MapPin, Building2 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -14,6 +14,11 @@ const EnergyIntelligence = () => {
   const [circulars, setCirculars] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [contractFilter, setContractFilter] = useState('');
+
+  const filteredContracts = contractFilter
+    ? ppaList.filter(c => c.technology === contractFilter)
+    : ppaList;
 
   useEffect(() => {
     fetchEnergyData();
@@ -58,9 +63,14 @@ const EnergyIntelligence = () => {
         return <Wind className="w-5 h-5 text-cyan-400" />;
       case 'hydro':
       case 'hydroelectric':
+      case 'hydropower':
         return <Droplet className="w-5 h-5 text-cyan-400" />;
       case 'geothermal':
         return <Flame className="w-5 h-5 text-orange-400" />;
+      case 'biomass':
+        return <Flame className="w-5 h-5 text-lime-400" />;
+      case 'ocean':
+        return <Droplet className="w-5 h-5 text-blue-400" />;
       default:
         return <Zap className="w-5 h-5 text-emerald-400" />;
     }
@@ -182,26 +192,33 @@ const EnergyIntelligence = () => {
             {analytics && (
               <>
                 {/* PPA Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                   <Card className="bg-slate-800 border-slate-700 p-6" data-testid="total-capacity-card">
-                    <p className="text-sm text-gray-400 mb-2">Total PPA Capacity</p>
-                    <span className="text-4xl font-bold text-white">{analytics.ppa_summary.total_capacity_mw}</span>
-                    <span className="text-lg text-gray-400 ml-2">MW</span>
-                    <p className="text-xs text-gray-500 mt-2">{analytics.ppa_summary.total_projects} projects tracked</p>
+                    <p className="text-sm text-gray-400 mb-2">Total RE Capacity</p>
+                    <span className="text-3xl font-bold text-white">{(analytics.ppa_summary.total_capacity_mw / 1000).toFixed(1)}</span>
+                    <span className="text-lg text-gray-400 ml-2">GW</span>
+                    <p className="text-xs text-gray-500 mt-2">{analytics.ppa_summary.total_projects?.toLocaleString()} awarded contracts</p>
                   </Card>
 
                   <Card className="bg-gradient-to-br from-emerald-900/40 to-emerald-800/20 border-emerald-500/30 p-6" data-testid="operational-card">
-                    <p className="text-sm text-emerald-300 mb-2">Operational</p>
-                    <span className="text-4xl font-bold text-white">{analytics.ppa_summary.operational_capacity}</span>
-                    <span className="text-lg text-gray-400 ml-2">MW</span>
+                    <p className="text-sm text-emerald-300 mb-2">Commercial Operation</p>
+                    <span className="text-3xl font-bold text-white">{(analytics.ppa_summary.operational_capacity / 1000).toFixed(1)}</span>
+                    <span className="text-lg text-gray-400 ml-2">GW</span>
                     <p className="text-xs text-emerald-400 mt-2">{analytics.ppa_summary.operational_count} projects online</p>
                   </Card>
 
-                  <Card className="bg-gradient-to-br from-amber-900/40 to-amber-800/20 border-amber-500/30 p-6" data-testid="construction-card">
-                    <p className="text-sm text-amber-300 mb-2">Under Construction</p>
-                    <span className="text-4xl font-bold text-white">{analytics.ppa_summary.under_construction_capacity}</span>
-                    <span className="text-lg text-gray-400 ml-2">MW</span>
-                    <p className="text-xs text-amber-400 mt-2">{analytics.ppa_summary.under_construction_count} projects building</p>
+                  <Card className="bg-gradient-to-br from-cyan-900/40 to-cyan-800/20 border-cyan-500/30 p-6" data-testid="development-card">
+                    <p className="text-sm text-cyan-300 mb-2">In Development</p>
+                    <span className="text-3xl font-bold text-white">{((analytics.ppa_summary.development_capacity || 0) / 1000).toFixed(1)}</span>
+                    <span className="text-lg text-gray-400 ml-2">GW</span>
+                    <p className="text-xs text-cyan-400 mt-2">{analytics.ppa_summary.development_count || 0} projects developing</p>
+                  </Card>
+
+                  <Card className="bg-gradient-to-br from-amber-900/40 to-amber-800/20 border-amber-500/30 p-6" data-testid="predev-card">
+                    <p className="text-sm text-amber-300 mb-2">Pre-Development</p>
+                    <span className="text-3xl font-bold text-white">{((analytics.ppa_summary.pre_development_capacity || 0) / 1000).toFixed(1)}</span>
+                    <span className="text-lg text-gray-400 ml-2">GW</span>
+                    <p className="text-xs text-amber-400 mt-2">{analytics.ppa_summary.pre_development_count || 0} projects pipeline</p>
                   </Card>
                 </div>
 
@@ -336,23 +353,41 @@ const EnergyIntelligence = () => {
         {/* Contracts Tab */}
         {activeTab === 'contracts' && (
           <div data-testid="contracts-section">
+            {/* Filter chips */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              {['All', 'Solar', 'Wind', 'Hydropower', 'Biomass', 'Ocean', 'Geothermal'].map((tech) => (
+                <button
+                  key={tech}
+                  onClick={() => setContractFilter(tech === 'All' ? '' : tech)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    (tech === 'All' && !contractFilter) || contractFilter === tech
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-800 text-gray-400 hover:bg-slate-700 border border-slate-700'
+                  }`}
+                >
+                  {tech}
+                </button>
+              ))}
+            </div>
+
             <Card className="bg-slate-800 border-slate-700">
-              <div className="p-4 border-b border-slate-700">
+              <div className="p-4 border-b border-slate-700 flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
                   <FileText className="w-5 h-5 text-emerald-400" />
-                  <span>Power Purchase Agreements Portfolio</span>
+                  <span>Awarded RE Service Contracts</span>
                 </h3>
+                <span className="text-xs text-gray-500">Source: DOE Legacy Site (as of April 2025)</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-700">
                       <th className="text-left p-4 text-sm font-medium text-gray-400">Project</th>
+                      <th className="text-left p-4 text-sm font-medium text-gray-400">Developer</th>
                       <th className="text-left p-4 text-sm font-medium text-gray-400">Technology</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-400">Capacity</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-400">Status</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-400">Off-taker</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-400">Term</th>
+                      <th className="text-left p-4 text-sm font-medium text-gray-400">Capacity (MW)</th>
+                      <th className="text-left p-4 text-sm font-medium text-gray-400">Stage</th>
+                      <th className="text-left p-4 text-sm font-medium text-gray-400">Island</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -360,41 +395,59 @@ const EnergyIntelligence = () => {
                       <tr>
                         <td colSpan={6} className="p-8 text-center">
                           <div className="text-gray-500">
-                            <AlertCircle className="w-8 h-8 mx-auto mb-3 text-gray-600" />
-                            <p className="text-sm font-medium text-gray-400 mb-1">PPA data currently unavailable</p>
-                            <p className="text-xs text-gray-600">ERC (erc.gov.ph) is protected by Cloudflare and cannot be scraped. This section will be populated once an alternative data source is available.</p>
+                            <Loader2 className="w-8 h-8 mx-auto mb-3 text-gray-600 animate-spin" />
+                            <p className="text-sm font-medium text-gray-400 mb-1">Loading RE contracts...</p>
+                            <p className="text-xs text-gray-600">Run POST /api/integration/run-ppa-update to populate data from DOE PDFs.</p>
                           </div>
                         </td>
                       </tr>
-                    ) : ppaList.map((ppa, idx) => (
-                      <tr key={idx} className="border-b border-slate-700 hover:bg-slate-700/50" data-testid={`ppa-row-${idx}`}>
+                    ) : filteredContracts.map((ppa, idx) => (
+                      <tr key={ppa.id || idx} className="border-b border-slate-700 hover:bg-slate-700/50" data-testid={`ppa-row-${idx}`}>
                         <td className="p-4">
                           <div className="flex items-center space-x-3">
                             {getTechIcon(ppa.technology)}
-                            <span className="text-white font-medium">{ppa.project}</span>
+                            <span className="text-white font-medium text-sm">{ppa.project_name}</span>
                           </div>
                         </td>
-                        <td className="p-4 text-gray-300">{ppa.technology}</td>
                         <td className="p-4">
-                          <span className="text-white font-medium">{ppa.capacity_mw}</span>
-                          <span className="text-gray-400 ml-1">MW</span>
+                          <div className="flex items-center space-x-2">
+                            <Building2 className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                            <span className="text-gray-300 text-sm">{ppa.developer || '—'}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 text-gray-300 text-sm">{ppa.technology}</td>
+                        <td className="p-4">
+                          <span className="text-white font-medium">{ppa.potential_capacity_mw?.toLocaleString()}</span>
+                          {ppa.installed_capacity_mw > 0 && (
+                            <span className="text-emerald-400 text-xs ml-2">({ppa.installed_capacity_mw} installed)</span>
+                          )}
                         </td>
                         <td className="p-4">
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            ppa.status === 'Operational' ? 'bg-emerald-500/20 text-emerald-400' :
-                            ppa.status === 'Under Construction' ? 'bg-amber-500/20 text-amber-400' :
-                            'bg-cyan-500/20 text-cyan-400'
+                            ppa.stage === 'Commercial Operation' ? 'bg-emerald-500/20 text-emerald-400' :
+                            ppa.stage === 'Development' ? 'bg-cyan-500/20 text-cyan-400' :
+                            'bg-amber-500/20 text-amber-400'
                           }`}>
-                            {ppa.status}
+                            {ppa.stage}
                           </span>
                         </td>
-                        <td className="p-4 text-gray-300">{ppa.off_taker}</td>
-                        <td className="p-4 text-gray-300">{ppa.term_years} years</td>
+                        <td className="p-4">
+                          <div className="flex items-center space-x-1">
+                            <MapPin className="w-3.5 h-3.5 text-gray-500" />
+                            <span className="text-gray-300 text-sm">{ppa.island || '—'}</span>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {ppaList.length > 0 && (
+                <div className="p-4 border-t border-slate-700 text-center text-xs text-gray-500">
+                  Showing {filteredContracts.length} of {ppaList.length} contracts
+                  {contractFilter && ` (filtered: ${contractFilter})`}
+                </div>
+              )}
             </Card>
           </div>
         )}

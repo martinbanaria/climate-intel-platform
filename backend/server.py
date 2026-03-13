@@ -27,6 +27,7 @@ from services.ngcp_scraper import ngcp_scraper
 from services.weather_integration import run_weather_update
 from services.doe_integration import run_doe_update
 from services.doe_fuel_integration import integrate_doe_fuel_prices
+from services.ppa_contract_scraper import scrape_all_contracts
 from models import MarketItem, ClimateMetric, ScrapedDocument, AnalyticsInsight
 
 ROOT_DIR = Path(__file__).parent
@@ -655,6 +656,17 @@ async def run_fuel_update_endpoint():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.post("/integration/run-ppa-update")
+async def run_ppa_update_endpoint():
+    """Download DOE awarded RE contract PDFs, parse them, and upsert to MongoDB."""
+    try:
+        result = await scrape_all_contracts(db)
+        return JSONResponse(result)
+    except Exception as e:
+        logger.error(f"Error in PPA update: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.post("/integration/run-da-bantay-presyo")
 async def run_da_integration():
     """Trigger real data integration from DA Bantay Presyo"""
@@ -769,18 +781,51 @@ async def get_doe_circulars():
 
 
 @api_router.get("/energy/ppa-status")
-async def get_ppa_statuses():
-    """Get Power Purchase Agreement statuses.
-    Note: ERC (erc.gov.ph) is blocked by Cloudflare. Returns empty list with data_status.
-    """
+async def get_ppa_statuses(
+    technology: Optional[str] = None,
+    stage: Optional[str] = None,
+    island: Optional[str] = None,
+    limit: int = 50,
+):
+    """Get RE Service Contracts from DOE awarded projects (real data from legacy.doe.gov.ph PDFs)."""
     try:
-        ppa_list = await doe_scraper.scrape_ppa_statuses()
+        query = {}
+        if technology:
+            query["technology"] = {"$regex": technology, "$options": "i"}
+        if stage:
+            query["stage"] = {"$regex": stage, "$options": "i"}
+        if island:
+            query["island"] = {"$regex": island, "$options": "i"}
+
+        total = await db.ppa_contracts.count_documents(query)
+        cursor = db.ppa_contracts.find(query).sort("potential_capacity_mw", -1).limit(limit)
+        contracts = await cursor.to_list(length=limit)
+
+        for c in contracts:
+            c["id"] = str(c.pop("_id"))
+            if "scraped_at" in c and hasattr(c["scraped_at"], "isoformat"):
+                c["scraped_at"] = c["scraped_at"].isoformat()
+
+        # Summary stats
+        pipeline = [
+            {"$match": query},
+            {"$group": {
+                "_id": "$technology",
+                "count": {"$sum": 1},
+                "total_potential_mw": {"$sum": "$potential_capacity_mw"},
+                "total_installed_mw": {"$sum": "$installed_capacity_mw"},
+            }},
+        ]
+        tech_summary = await db.ppa_contracts.aggregate(pipeline).to_list(length=20)
+
         return JSONResponse({
             "success": True,
-            "count": len(ppa_list),
-            "data": ppa_list,
-            "data_status": "unavailable",
-            "data_status_reason": "ERC website (erc.gov.ph) is blocked by Cloudflare interactive challenge. PSA data cannot be scraped programmatically.",
+            "count": len(contracts),
+            "total": total,
+            "data": contracts,
+            "data_status": "available" if total > 0 else "empty",
+            "source": "DOE Legacy Site — Awarded RE Service Contracts (as of April 2025)",
+            "technology_summary": tech_summary,
         })
     except Exception as e:
         logger.error(f"Error fetching PPA statuses: {str(e)}")
@@ -941,25 +986,35 @@ def _derive_market_outlook(price_trends: dict) -> dict:
 async def get_energy_analytics():
     """Get energy market analytics including price trends and contract insights"""
     try:
-        # Get PPA data
-        ppa_list = await doe_scraper.scrape_ppa_statuses()
-
-        # Calculate PPA analytics
-        total_capacity = sum(ppa.get("capacity_mw", 0) for ppa in ppa_list)
-        operational = [p for p in ppa_list if p.get("status") == "Operational"]
-        under_construction = [
-            p for p in ppa_list if p.get("status") == "Under Construction"
+        # Get real PPA data from MongoDB (populated by run-ppa-update)
+        ppa_total = await db.ppa_contracts.count_documents({})
+        ppa_pipeline = [
+            {"$group": {
+                "_id": "$stage",
+                "count": {"$sum": 1},
+                "capacity": {"$sum": "$potential_capacity_mw"},
+                "installed": {"$sum": "$installed_capacity_mw"},
+            }},
         ]
-        contracted = [p for p in ppa_list if p.get("status") == "Contracted"]
+        stage_stats = {s["_id"]: s for s in await db.ppa_contracts.aggregate(ppa_pipeline).to_list(20)}
 
-        # Technology breakdown
-        tech_breakdown = {}
-        for ppa in ppa_list:
-            tech = ppa.get("technology", "Unknown")
-            if tech not in tech_breakdown:
-                tech_breakdown[tech] = {"count": 0, "capacity_mw": 0}
-            tech_breakdown[tech]["count"] += 1
-            tech_breakdown[tech]["capacity_mw"] += ppa.get("capacity_mw", 0)
+        tech_pipeline = [
+            {"$group": {
+                "_id": "$technology",
+                "count": {"$sum": 1},
+                "capacity_mw": {"$sum": "$potential_capacity_mw"},
+            }},
+        ]
+        tech_breakdown = {
+            t["_id"]: {"count": t["count"], "capacity_mw": round(t["capacity_mw"], 2)}
+            for t in await db.ppa_contracts.aggregate(tech_pipeline).to_list(20)
+        }
+
+        operational = stage_stats.get("Commercial Operation", {"count": 0, "capacity": 0, "installed": 0})
+        development = stage_stats.get("Development", {"count": 0, "capacity": 0})
+        pre_dev = stage_stats.get("Pre-Development", {"count": 0, "capacity": 0})
+
+        total_capacity = sum(s["capacity"] for s in stage_stats.values())
 
         # Price trends — real data from IEMOP, fallback to static estimates
         PRICE_TRENDS_FALLBACK = {
@@ -995,18 +1050,15 @@ async def get_energy_analytics():
 
         analytics = {
             "ppa_summary": {
-                "total_projects": len(ppa_list),
-                "total_capacity_mw": total_capacity,
-                "operational_count": len(operational),
-                "operational_capacity": sum(
-                    p.get("capacity_mw", 0) for p in operational
-                ),
-                "under_construction_count": len(under_construction),
-                "under_construction_capacity": sum(
-                    p.get("capacity_mw", 0) for p in under_construction
-                ),
-                "contracted_count": len(contracted),
-                "contracted_capacity": sum(p.get("capacity_mw", 0) for p in contracted),
+                "total_projects": ppa_total,
+                "total_capacity_mw": round(total_capacity, 2),
+                "operational_count": operational["count"],
+                "operational_capacity": round(operational.get("installed", 0), 2),
+                "development_count": development["count"],
+                "development_capacity": round(development["capacity"], 2),
+                "pre_development_count": pre_dev["count"],
+                "pre_development_capacity": round(pre_dev["capacity"], 2),
+                "source": "DOE Awarded RE Service Contracts (April 2025)",
             },
             "technology_breakdown": tech_breakdown,
             "price_trends": price_trends,
