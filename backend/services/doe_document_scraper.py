@@ -188,27 +188,10 @@ class DOEDocumentScraper:
         self.extractor = DocumentExtractor()
     
     async def scrape_doe_circulars(self) -> List[Dict]:
-        """Scrape DOE circulars and orders"""
-        # Mock data for now - in production, would scrape actual DOE website
-        return [
-            {
-                'title': 'DOE Circular DC2026-02-001: Renewable Energy Guidelines',
-                'type': 'government_regulation',
-                'date': '2026-02-15',
-                'url': 'https://www.doe.gov.ph/circulars/dc2026-02-001',
-                'document_number': 'DC2026-02-001',
-                'summary': 'Updated guidelines for renewable energy project registration and compliance',
-                'effective_date': 'March 1, 2026'
-            },
-            {
-                'title': 'DOE Order on Grid Reliability Standards',
-                'type': 'government_regulation',
-                'date': '2026-02-10',
-                'url': 'https://www.doe.gov.ph/orders/2026-01',
-                'document_number': 'DO2026-01',
-                'summary': 'New standards for grid reliability and reserve requirements'
-            }
-        ]
+        """Legacy stub — real DOE circulars are fetched by doe_integration.py.
+        Returns empty list; callers should use the /api/energy/doe-circulars endpoint instead.
+        """
+        return []
     
     async def scrape_ppa_statuses(self) -> List[Dict]:
         """

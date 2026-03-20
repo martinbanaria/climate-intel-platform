@@ -124,14 +124,16 @@ DA only publishes on weekdays. Skip weekends in all downloaders.
 
 ### MOCK / HARDCODED DATA
 
-| What | File | Endpoint |
-|------|------|----------|
-| Energy market outlook | hardcoded strings in `server.py` | `GET /api/energy/analytics` (market_outlook) |
+None — all endpoints now return real fetched data or honest unavailable states.
 
-**Previously mock, now real:**
+**Previously mock, now real or removed (March 2026):**
 - PPA status → real DOE awarded RE contracts (1,254 projects from DOE Legacy Site)
-- Climate impact on market items → computed from live WeatherAPI metrics per category (was "Climate data unavailable")
+- Climate impact on market items → computed from live WeatherAPI metrics per category
 - ClimateImpact page insights → computed from API data in `ClimateImpact.jsx`
+- Energy market outlook key drivers → now derived from actual WESM prices (was hardcoded generic strings)
+- WESM price fallback → returns `source: "unavailable"` with null values (was fabricated numbers)
+- `simple_real_data.py` → deleted (was legacy hardcoded prices with `random.uniform()`)
+- `doe_document_scraper.scrape_doe_circulars()` → returns `[]` (was mock data; real scraping via `doe_integration.py`)
 
 ---
 

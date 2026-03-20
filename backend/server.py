@@ -18,7 +18,6 @@ from services.web_crawler import crawler
 from services.ocr_service import ocr_service
 from services.analytics_engine import analytics_engine
 from services.real_data_integration import DABantayPresyoIntegration
-from services.simple_real_data import integrate_simple_real_data
 from services.comprehensive_real_data import integrate_comprehensive_real_data
 from services.newsdata_integration import news_integration
 from services.doe_document_scraper import doe_scraper
@@ -616,31 +615,6 @@ async def run_doe_update_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.post("/integration/run-realistic-data")
-async def run_realistic_integration():
-    """Integrate realistic price data based on actual NCR patterns"""
-    try:
-        logger.info("Starting realistic data integration...")
-        success = await integrate_simple_real_data(db)
-
-        if success:
-            count = await db.market_items.count_documents({})
-            return JSONResponse(
-                {
-                    "success": True,
-                    "message": "Realistic market data integrated successfully",
-                    "total_items": count,
-                    "note": "Data based on actual DA Bantay Presyo NCR price patterns with realistic variations",
-                }
-            )
-        else:
-            return JSONResponse(
-                {"success": False, "message": "Integration failed"}, status_code=500
-            )
-    except Exception as e:
-        logger.error(f"Error in realistic integration: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @api_router.post("/integration/run-fuel-update")
 async def run_fuel_update_endpoint():
@@ -973,7 +947,14 @@ def _derive_market_outlook(price_trends: dict) -> dict:
         key_drivers.append(f"Luzon spot price normal at ₱{luzon_current:,.0f}/MWh")
     if visayas_current > 7000:
         key_drivers.append(f"Visayas spot price elevated at ₱{visayas_current:,.0f}/MWh")
-    key_drivers += ["Increasing RE capacity additions", "Coal plant retirements"]
+    elif visayas_current > 0:
+        key_drivers.append(f"Visayas spot price normal at ₱{visayas_current:,.0f}/MWh")
+    if mindanao_current > 7000:
+        key_drivers.append(f"Mindanao spot price elevated at ₱{mindanao_current:,.0f}/MWh")
+    elif mindanao_current > 0:
+        key_drivers.append(f"Mindanao spot price normal at ₱{mindanao_current:,.0f}/MWh")
+    if not key_drivers:
+        key_drivers.append("WESM price data unavailable")
     return {
         "short_term": short_term,
         "supply_adequacy": supply_adequacy,
@@ -1016,37 +997,15 @@ async def get_energy_analytics():
 
         total_capacity = sum(s["capacity"] for s in stage_stats.values())
 
-        # Price trends — real data from IEMOP, fallback to static estimates
-        PRICE_TRENDS_FALLBACK = {
-            "wesm_luzon": {
-                "current": 5842,
-                "week_ago": 5398,
-                "month_ago": 5125,
-                "trend": [5125, 5234, 5398, 5567, 5712, 5842],
-                "change_pct": 8.2,
-                "source": "estimated",
-            },
-            "wesm_visayas": {
-                "current": 6123,
-                "week_ago": 5890,
-                "month_ago": 5678,
-                "trend": [5678, 5789, 5890, 5987, 6045, 6123],
-                "change_pct": 7.8,
-                "source": "estimated",
-            },
-            "wesm_mindanao": {
-                "current": 4567,
-                "week_ago": 4432,
-                "month_ago": 4298,
-                "trend": [4298, 4356, 4432, 4487, 4523, 4567],
-                "change_pct": 6.3,
-                "source": "estimated",
-            },
-        }
+        # Price trends — real data from IEMOP only, no fabricated fallback
         price_trends = await wesm_scraper.fetch_price_trends(days=7)
         if not price_trends:
-            logger.warning("IEMOP unavailable; using fallback price trends")
-            price_trends = PRICE_TRENDS_FALLBACK
+            logger.warning("IEMOP unavailable; WESM price trends empty")
+            price_trends = {
+                "wesm_luzon": {"current": None, "week_ago": None, "month_ago": None, "trend": [], "change_pct": None, "source": "unavailable"},
+                "wesm_visayas": {"current": None, "week_ago": None, "month_ago": None, "trend": [], "change_pct": None, "source": "unavailable"},
+                "wesm_mindanao": {"current": None, "week_ago": None, "month_ago": None, "trend": [], "change_pct": None, "source": "unavailable"},
+            }
 
         analytics = {
             "ppa_summary": {
