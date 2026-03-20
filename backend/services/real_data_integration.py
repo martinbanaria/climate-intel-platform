@@ -13,6 +13,8 @@ from typing import List, Dict, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 
+from services.http_utils import fetch_with_retry, DEFAULT_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 class DABantayPresyoIntegration:
@@ -26,29 +28,32 @@ class DABantayPresyoIntegration:
         }
     
     async def download_latest_pdf(self) -> Optional[bytes]:
-        """Download the most recent daily price PDF (skips weekends)"""
+        """Download the most recent daily price PDF (skips weekends).
+
+        Uses fetch_with_retry for each URL candidate — retries on 5xx/timeout.
+        Shared session across all attempts.
+        """
         today = datetime.now()
-        timeout = aiohttp.ClientTimeout(total=45)
 
-        for days_ago in range(7):
-            check_date = today - timedelta(days=days_ago)
-            if check_date.weekday() >= 5:  # skip Saturday/Sunday
-                continue
-
-            for url in self._construct_daily_urls(check_date):
-                logger.info(f"Trying: {url}")
-                try:
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.get(url, headers=self.headers) as response:
-                            if response.status == 200:
-                                data = await response.read()
-                                logger.info(f"Downloaded daily PDF for {check_date.strftime('%Y-%m-%d')} ({len(data)} bytes)")
-                                return data
-                            else:
-                                logger.info(f"URL not found: {url} (Status {response.status})")
-                except Exception as e:
-                    logger.warning(f"Failed {url}: {type(e).__name__}: {str(e)}")
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
+            for days_ago in range(7):
+                check_date = today - timedelta(days=days_ago)
+                if check_date.weekday() >= 5:
                     continue
+
+                for url in self._construct_daily_urls(check_date):
+                    logger.info(f"Trying: {url}")
+                    response = await fetch_with_retry(
+                        session, url, max_retries=3, headers=self.headers
+                    )
+                    if response is not None and response.status == 200:
+                        data = await response.read()
+                        logger.info(
+                            f"Downloaded daily PDF for {check_date.strftime('%Y-%m-%d')} ({len(data)} bytes)"
+                        )
+                        return data
+
+                await asyncio.sleep(1.0)
 
         logger.error("Could not find any recent daily price PDF")
         return None

@@ -84,10 +84,10 @@ class ComprehensiveRealDataIntegrator:
                 'forecast': 'Monitor market conditions',
             }
 
-        # Extract real metric values
+        # Extract real metric values (canonical field: currentValue)
         def _val(metric_name, default):
             m = climate_metrics.get(metric_name, {})
-            return m.get('value', default) if m else default
+            return m.get('currentValue', default) if m else default
 
         temp = _val('Temperature', 28)
         humidity = _val('Humidity', 70)
@@ -179,18 +179,18 @@ class ComprehensiveRealDataIntegrator:
         return {'level': level, 'factors': factors, 'forecast': forecast}
     
     async def fetch_climate_metrics(self) -> Dict:
-        """Load current climate metrics from MongoDB into a dict keyed by name."""
+        """Load current climate metrics from MongoDB, keyed by name.
+
+        Returns dict like: {"Temperature": {"name": "Temperature", "currentValue": 30.3, ...}, ...}
+        Uses the canonical schema written by weather_integration.py.
+        """
         metrics = {}
-        async for doc in self.db.climate_metrics.find({}, {"_id": 0, "name": 1, "currentValue": 1, "unit": 1, "status": 1}):
+        async for doc in self.db.climate_metrics.find(
+            {}, {"_id": 0, "name": 1, "currentValue": 1, "unit": 1, "status": 1}
+        ):
             name = doc.get("name", "")
             if name:
-                # Normalize to the keys generate_climate_impact expects
-                metrics[name] = {
-                    "metric_name": name,
-                    "value": doc.get("currentValue", 0),
-                    "unit": doc.get("unit", ""),
-                    "status": doc.get("status", ""),
-                }
+                metrics[name] = doc
         return metrics
 
     async def integrate_real_data(self, days: int = 7):
@@ -295,8 +295,4 @@ class ComprehensiveRealDataIntegrator:
 async def integrate_comprehensive_real_data(db, days=7):
     """Main integration function for comprehensive real data"""
     integrator = ComprehensiveRealDataIntegrator(db)
-    success = await integrator.integrate_real_data(days)
-    # Expose climate metrics count for diagnostics
-    climate_count = await db.climate_metrics.count_documents({})
-    logger.info(f"Climate metrics docs in DB: {climate_count}")
-    return success, climate_count
+    return await integrator.integrate_real_data(days)

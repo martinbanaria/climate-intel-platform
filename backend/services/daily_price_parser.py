@@ -13,6 +13,8 @@ import logging
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 
+from services.http_utils import fetch_with_retry, DEFAULT_TIMEOUT, DEFAULT_HEADERS
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,32 +37,31 @@ class DailyPriceIndexParser:
         ]
         return urls
 
-    async def download_pdf(self, date: datetime) -> Optional[bytes]:
-        """Download Daily Price Index PDF for a specific date"""
+    async def download_pdf(
+        self, date: datetime, session: aiohttp.ClientSession = None
+    ) -> Optional[bytes]:
+        """Download Daily Price Index PDF for a specific date, with retry."""
         urls = self._construct_daily_url(date)
-        timeout = aiohttp.ClientTimeout(total=45)
+        owns_session = session is None
 
-        # Try all possible URL patterns
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        if owns_session:
+            session = aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT)
+
+        try:
             for url in urls:
                 logger.info(f"Trying: {url}")
-                try:
-                    async with session.get(
-                        url, headers=self.headers
-                    ) as response:
-                        if response.status == 200:
-                            data = await response.read()
-                            logger.info(
-                                f"✓ Downloaded PDF for {date.strftime('%Y-%m-%d')} ({len(data)} bytes)"
-                            )
-                            return data
-                        else:
-                            logger.info(
-                                f"URL not found: {url} (Status {response.status})"
-                            )
-                except Exception as e:
-                    logger.warning(f"Failed: {url} - {type(e).__name__}: {str(e)}")
-                    continue
+                response = await fetch_with_retry(
+                    session, url, max_retries=3, headers=self.headers
+                )
+                if response is not None and response.status == 200:
+                    data = await response.read()
+                    logger.info(
+                        f"✓ Downloaded PDF for {date.strftime('%Y-%m-%d')} ({len(data)} bytes)"
+                    )
+                    return data
+        finally:
+            if owns_session:
+                await session.close()
 
         logger.warning(f"No PDF found for {date.strftime('%Y-%m-%d')}")
         return None
@@ -68,24 +69,40 @@ class DailyPriceIndexParser:
     async def download_multiple_days(
         self, days: int = 7
     ) -> List[Tuple[datetime, bytes]]:
-        """Download PDFs for the last N days"""
+        """Download PDFs for the last N days.
+
+        Uses a shared session, respects DA.gov.ph with 1s delay between requests,
+        and breaks early if 3 consecutive weekdays return no PDF (circuit breaker).
+        """
         today = datetime.now()
         downloads = []
+        consecutive_failures = 0
+        max_consecutive_failures = 3
 
-        for days_ago in range(days):
-            date = today - timedelta(days=days_ago)
-            # Skip weekends for daily reports
-            if date.weekday() >= 5:  # Saturday = 5, Sunday = 6
-                continue
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
+            for days_ago in range(days):
+                date = today - timedelta(days=days_ago)
+                # Skip weekends — DA only publishes on weekdays
+                if date.weekday() >= 5:
+                    continue
 
-            pdf_bytes = await self.download_pdf(date)
-            if pdf_bytes:
-                downloads.append((date, pdf_bytes))
+                pdf_bytes = await self.download_pdf(date, session=session)
+                if pdf_bytes:
+                    downloads.append((date, pdf_bytes))
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.warning(
+                            f"Circuit breaker: {max_consecutive_failures} consecutive "
+                            f"days with no PDF — stopping early"
+                        )
+                        break
 
-            # Small delay to be respectful
-            await asyncio.sleep(0.5)
+                # Respectful delay for government site
+                await asyncio.sleep(1.0)
 
-        logger.info(f"Downloaded {len(downloads)} PDFs out of {days} days")
+        logger.info(f"Downloaded {len(downloads)} PDFs out of {days} days attempted")
         return downloads
 
     def extract_text_from_pdf(self, pdf_bytes: bytes) -> str:

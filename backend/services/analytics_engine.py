@@ -201,7 +201,7 @@ class AnalyticsEngine:
         if temp_metric:
             vegetables = [item for item in market_items if item['category'] == 'vegetables']
             
-            if temp_metric['currentValue'] < temp_metric['averageValue']:
+            if temp_metric['currentValue'] < temp_metric.get('averageValue', temp_metric['currentValue']):
                 correlations.append({
                     'insight_type': 'climate_correlation',
                     'title': 'Lower Temperatures Supporting Vegetable Prices',
@@ -216,7 +216,7 @@ class AnalyticsEngine:
         if rain_metric:
             rice_items = [item for item in market_items if item['category'] == 'rice']
             
-            if rain_metric['currentValue'] > rain_metric['averageValue']:
+            if rain_metric['currentValue'] > rain_metric.get('averageValue', rain_metric['currentValue']):
                 correlations.append({
                     'insight_type': 'climate_correlation',
                     'title': 'Adequate Rainfall Stabilizing Rice Supply',

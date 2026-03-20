@@ -442,14 +442,19 @@ async def run_weather_update(db) -> dict:
             existing_trend = existing.get("trend", []) if existing else []
 
             rec, imp = m["texts"]
+            trend = m["fn_trend"](existing_trend)
+            avg = round(sum(trend) / len(trend), 1) if trend else m["currentValue"]
             doc = {
+                # Canonical schema — all consumers (comprehensive_real_data,
+                # analytics_engine, ClimateImpact.jsx) read these fields directly.
                 "name": m["name"],
                 "category": m["category"],
                 "currentValue": m["currentValue"],
+                "averageValue": avg,
                 "unit": m["unit"],
                 "icon": m["icon"],
                 "status": m["status"],
-                "trend": m["fn_trend"](existing_trend),
+                "trend": trend,
                 "recommendation": rec,
                 "impact": imp,
                 "lastUpdated": now,

@@ -58,11 +58,13 @@ class NGCPScraper:
     #  Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    async def scrape(self) -> Dict:
+    async def scrape(self) -> Optional[Dict]:
         """
         Return Power Situation Outlook data from ngcp.ph.
-        On success: {total_supply, total_demand, reserves, grids[], data_as_of, source}
-        On failure: {}
+
+        Returns:
+            dict with {total_supply, total_demand, reserves, grids[], data_as_of, source}
+            on success, or None on failure.
         """
         if self._cache and (time.time() - self._cache_ts) < self.CACHE_TTL:
             return self._cache
@@ -73,7 +75,7 @@ class NGCPScraper:
                 return self._cache
 
             result = await self._do_scrape()
-            if result:
+            if result is not None:
                 self._cache = result
                 self._cache_ts = time.time()
                 logger.info(
@@ -82,7 +84,7 @@ class NGCPScraper:
                 )
             else:
                 logger.warning("NGCP: scrape returned no data")
-            return result or {}
+            return result
 
     # ------------------------------------------------------------------ #
     #  Internal                                                            #
