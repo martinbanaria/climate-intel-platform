@@ -179,12 +179,18 @@ class ComprehensiveRealDataIntegrator:
         return {'level': level, 'factors': factors, 'forecast': forecast}
     
     async def fetch_climate_metrics(self) -> Dict:
-        """Load current climate metrics from MongoDB into a dict keyed by metric_name."""
+        """Load current climate metrics from MongoDB into a dict keyed by name."""
         metrics = {}
-        async for doc in self.db.climate_metrics.find({}, {"_id": 0, "metric_name": 1, "value": 1, "unit": 1, "status": 1}):
-            name = doc.get("metric_name", "")
+        async for doc in self.db.climate_metrics.find({}, {"_id": 0, "name": 1, "currentValue": 1, "unit": 1, "status": 1}):
+            name = doc.get("name", "")
             if name:
-                metrics[name] = doc
+                # Normalize to the keys generate_climate_impact expects
+                metrics[name] = {
+                    "metric_name": name,
+                    "value": doc.get("currentValue", 0),
+                    "unit": doc.get("unit", ""),
+                    "status": doc.get("status", ""),
+                }
         return metrics
 
     async def integrate_real_data(self, days: int = 7):

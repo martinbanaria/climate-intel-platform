@@ -860,7 +860,7 @@ async def get_grid_status():
         else:
             overall_status = "STABLE"
 
-        if ngcp_data:
+        if ngcp_data and ngcp_data.get("total_demand") is not None:
             grid_data = {
                 **ngcp_data,
                 "status": overall_status,

@@ -38,27 +38,29 @@ class DailyPriceIndexParser:
     async def download_pdf(self, date: datetime) -> Optional[bytes]:
         """Download Daily Price Index PDF for a specific date"""
         urls = self._construct_daily_url(date)
+        timeout = aiohttp.ClientTimeout(total=45)
 
         # Try all possible URL patterns
-        for url in urls:
-            logger.info(f"Trying: {url}")
-            try:
-                async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for url in urls:
+                logger.info(f"Trying: {url}")
+                try:
                     async with session.get(
-                        url, headers=self.headers, timeout=30
+                        url, headers=self.headers
                     ) as response:
                         if response.status == 200:
+                            data = await response.read()
                             logger.info(
-                                f"✓ Downloaded PDF for {date.strftime('%Y-%m-%d')}"
+                                f"✓ Downloaded PDF for {date.strftime('%Y-%m-%d')} ({len(data)} bytes)"
                             )
-                            return await response.read()
+                            return data
                         else:
-                            logger.debug(
+                            logger.info(
                                 f"URL not found: {url} (Status {response.status})"
                             )
-            except Exception as e:
-                logger.debug(f"Failed: {url} - {str(e)}")
-                continue
+                except Exception as e:
+                    logger.warning(f"Failed: {url} - {type(e).__name__}: {str(e)}")
+                    continue
 
         logger.warning(f"No PDF found for {date.strftime('%Y-%m-%d')}")
         return None
