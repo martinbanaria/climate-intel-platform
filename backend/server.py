@@ -547,14 +547,15 @@ async def run_comprehensive_integration(days: int = 7):
         logger.info(
             f"Starting comprehensive real data integration (last {days} days)..."
         )
-        success = await integrate_comprehensive_real_data(db, days)
+        result = await integrate_comprehensive_real_data(db, days)
+        success, climate_metrics_count = result if isinstance(result, tuple) else (result, 0)
 
         if success:
             count = await db.market_items.count_documents({})
 
             # Get sample item to show metadata
             sample = await db.market_items.find_one(
-                {}, {"metadata": 1, "name": 1, "trend": 1}
+                {}, {"metadata": 1, "name": 1, "trend": 1, "climateImpact": 1}
             )
 
             return JSONResponse(
@@ -565,12 +566,14 @@ async def run_comprehensive_integration(days: int = 7):
                     "data_source": "DA Bantay Presyo Daily Price Index",
                     "days_analyzed": days,
                     "note": "Real price trends from actual daily PDFs",
+                    "climate_metrics_in_db": climate_metrics_count,
                     "sample": {
                         "item": sample.get("name") if sample else None,
                         "trend_points": len(sample.get("trend", [])) if sample else 0,
                         "date_range": sample.get("metadata", {}).get("date_range")
                         if sample
                         else None,
+                        "climate_impact": sample.get("climateImpact") if sample else None,
                     },
                 }
             )

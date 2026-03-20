@@ -295,4 +295,8 @@ class ComprehensiveRealDataIntegrator:
 async def integrate_comprehensive_real_data(db, days=7):
     """Main integration function for comprehensive real data"""
     integrator = ComprehensiveRealDataIntegrator(db)
-    return await integrator.integrate_real_data(days)
+    success = await integrator.integrate_real_data(days)
+    # Expose climate metrics count for diagnostics
+    climate_count = await db.climate_metrics.count_documents({})
+    logger.info(f"Climate metrics docs in DB: {climate_count}")
+    return success, climate_count
