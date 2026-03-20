@@ -10,7 +10,7 @@ Climate-Smart Market Intelligence Platform for the Philippines.
 ## Stack
 | Layer | Tech |
 |---|---|
-| Frontend | React 19, TailwindCSS, Shadcn UI, Recharts, React Router 7 |
+| Frontend | React 19, TailwindCSS, Shadcn UI (5 components), Recharts, React Router 7, Sonner |
 | Backend | FastAPI (Python 3.9), Motor (async MongoDB) |
 | Database | MongoDB Atlas (Singapore region) |
 | Deployment | Render.com (backend), Vercel (frontend) |
@@ -28,18 +28,19 @@ backend/
   server.py                          # All API endpoints
   scheduler.py                       # DO NOT USE — Render free tier sleeps, kills it
   services/
-    daily_price_parser.py            # DA Bantay Presyo daily PDF downloader/parser (WORKING)
-    real_data_integration.py         # /run-da-bantay-presyo endpoint service (FIXED)
-    comprehensive_real_data.py       # 7-day history builder using daily_price_parser (WORKING)
-    weather_integration.py           # NEW — WeatherAPI.com -> climate_metrics MongoDB (WORKING)
+    http_utils.py                    # Shared HTTP: fetch_with_retry (exponential backoff, circuit breaker)
+    daily_price_parser.py            # DA Bantay Presyo daily PDF downloader/parser (uses http_utils)
+    real_data_integration.py         # /run-da-bantay-presyo endpoint service (uses http_utils)
+    comprehensive_real_data.py       # 7-day history builder + climate impact computation
+    weather_integration.py           # WeatherAPI.com -> climate_metrics MongoDB (canonical schema)
     newsdata_integration.py          # Real energy news via NewsData.io API (WORKING)
     energy_grid_scraper.py           # IEMOP WESM price scraper (REAL, 1-hr cache)
-    ngcp_scraper.py                  # NGCP grid MW Playwright scraper (REAL, 30-min cache)
-    doe_integration.py               # NEW — real DOE issuances via SSR scrape -> MongoDB
+    ngcp_scraper.py                  # NGCP grid MW Playwright scraper (returns Optional[Dict], 30-min cache)
+    doe_integration.py               # Real DOE issuances via SSR scrape -> MongoDB
     doe_document_scraper.py          # Legacy mock PPA data (ERC blocked by Cloudflare)
     doe_fuel_integration.py          # DOE fuel price scraper
-    telegram_bot.py                  # NEW — Telegram Bot API broadcaster (send_message, broadcast, build_daily_alert)
-    historical_backfill.py           # NEW — DA PDF backfill over arbitrary date range → price_history collection
+    telegram_bot.py                  # Telegram Bot API broadcaster (send_message, broadcast, build_daily_alert)
+    historical_backfill.py           # DA PDF backfill over arbitrary date range → price_history collection
     web_crawler.py                   # Generic async scraper (BeautifulSoup)
     ocr_service.py                   # PyPDF2 + PyTesseract
 
@@ -47,8 +48,21 @@ frontend/src/
   pages/Home.jsx                     # Main dashboard: market analytics + climate events + grid
   pages/EnergyIntelligence.jsx       # Energy grid/WESM/PPAs/news page
   pages/ClimateImpact.jsx            # Climate metrics page (real WeatherAPI data now)
-  api/index.js                       # All Axios API calls
+  pages/GroceryBasket.jsx            # Cheapest basket builder + preset templates
+  pages/NotFound.jsx                 # 404 catch-all route
+  components/Navbar.jsx              # Top nav with mobile hamburger menu
+  components/ErrorBoundary.jsx       # Top-level error boundary wrapping App
+  components/MarketCard.jsx          # Commodity price card with sparkline + dialog
+  components/ClimateCard.jsx         # Climate metric card with sparkline + dialog
+  components/BestDeals.jsx           # Horizontal scroll carousel of best deals
+  components/ui/                     # Shadcn UI — trimmed to 5: button, card, dialog, input, sonner
+  api/index.js                       # All Axios API calls (marketAPI, analyticsAPI, energyAPI, climateAPI, basketAPI)
   # NOTE: Commodities, Analytics, Forecasts, Watchlist pages do NOT exist yet
+
+frontend/public/
+  index.html                         # OG/Twitter meta tags, dark theme-color, no Inter font
+  favicon.svg                        # SVG favicon (emerald triangle on slate bg)
+  robots.txt                         # Allow all crawlers
 
 .github/workflows/daily-refresh.yml  # Automated daily data refresh (ACTIVE)
 .github/workflows/test.yml          # CI: pytest against production on push/PR
@@ -81,6 +95,14 @@ DA only publishes on weekdays. Skip weekends in all downloaders.
 2. `real_data_integration.py` — literal backslash-n instead of newline. Fixed.
 3. `real_data_integration.py` — regex raw strings double-escaped. Fixed.
 4. GitHub Actions cold-start — curl timed out at 30s. Fixed to 60s with 6 retries.
+5. `comprehensive_real_data.py` — `fetch_climate_metrics()` queried non-existent fields
+   (`metric_name`, `value`) instead of canonical (`name`, `currentValue`). All market items
+   showed "Climate data unavailable". Fixed by standardizing all consumers on canonical schema.
+6. `ngcp_scraper.py` — `scrape()` returned `{}` on failure (falsy in Python), causing
+   `server.py` to skip MongoDB cache persistence. Fixed: returns `None` on failure.
+7. `daily_price_parser.py` + `real_data_integration.py` — bare `timeout=30` int (deprecated
+   in aiohttp), no retry logic, new session per URL. Fixed: shared `http_utils.fetch_with_retry`
+   with exponential backoff, circuit breaker, shared sessions.
 
 ---
 
@@ -104,10 +126,12 @@ DA only publishes on weekdays. Skip weekends in all downloaders.
 
 | What | File | Endpoint |
 |------|------|----------|
-| PPA status | `doe_document_scraper.scrape_ppa_statuses()` | `GET /api/energy/ppa-status` |
-| PPA analytics summary | derived from fake PPAs | `GET /api/energy/analytics` (ppa_summary) |
 | Energy market outlook | hardcoded strings in `server.py` | `GET /api/energy/analytics` (market_outlook) |
-| ClimateImpact key insights text | `ClimateImpact.jsx` lines 144-148 | frontend only |
+
+**Previously mock, now real:**
+- PPA status → real DOE awarded RE contracts (1,254 projects from DOE Legacy Site)
+- Climate impact on market items → computed from live WeatherAPI metrics per category (was "Climate data unavailable")
+- ClimateImpact page insights → computed from API data in `ClimateImpact.jsx`
 
 ---
 
@@ -153,8 +177,15 @@ GET  /api/basket/templates        # Feature D — preset baskets with live price
   - Air Quality Index (PM2.5 ug/m3), Wind Speed (km/h)
   - Soil Moisture (derived: humidity*0.6 + rainfall*0.4 scaled)
   - Drought Index (derived: inverse of soil moisture)
-- Each doc: `{metric_name, value, unit, status, trend: [7 values], last_updated}`
-- Confirmed working: returns `{"success": true, "metrics_updated": 8}`
+- **Canonical schema** (all consumers read these fields directly):
+  ```
+  {name, category, currentValue, averageValue, unit, icon, status,
+   trend: [7 values], recommendation, impact, lastUpdated, updatedAt,
+   data_source, location}
+  ```
+- `averageValue` = mean of the 7-point trend array
+- Consumers: `comprehensive_real_data.py` (climate impact), `analytics_engine.py` (correlations), `ClimateImpact.jsx` (frontend)
+- **Do not** invent alternate field names (`metric_name`, `value`, etc.) — use `name` and `currentValue`
 
 ---
 
@@ -180,6 +211,63 @@ GET  /api/basket/templates        # Feature D — preset baskets with live price
 
 ---
 
+## Frontend Code Audit (completed March 2026)
+
+Two-round comprehensive audit of the entire React frontend. Build: **137.13 kB JS gzip, 6.55 kB CSS gzip** — zero warnings.
+
+### Round 1 — Cleanup & Infrastructure (15 items)
+1. Added null guards for analytics data in Home.jsx
+2. Removed non-functional timePeriod filter buttons from Home.jsx and ClimateImpact.jsx
+3. Added mobile hamburger menu to Navbar.jsx
+4. Centralized GroceryBasket API calls into `api/index.js` (`basketAPI`)
+5. Deleted dead `mockData.js`
+6. Added 404 catch-all route (`NotFound.jsx`)
+7. Added top-level `ErrorBoundary.jsx` wrapping entire App
+8. Removed fake notification badge and non-functional Settings button
+9. Fixed inconsistent branding ("ClimateWatch" -> "Climate Intel")
+10. Fixed exposed API endpoint text in EnergyIntelligence empty state
+11. Fixed `use-toast.js` stale listener bug (`[state]` -> `[]` dependency)
+12. Fixed dead `href="#"` link in Home.jsx footer
+13. Persisted favorites to `localStorage` in Home.jsx and ClimateImpact.jsx
+14. Deleted 41 unused Shadcn UI component files (kept 5: button, card, dialog, input, sonner)
+15. Removed 35 unused npm dependencies from `package.json` (107 packages pruned)
+
+### Round 2 — Deep Fixes (22 items, 21 done, 1 cancelled)
+1. **CRITICAL:** Hardcoded `theme="dark"` in sonner.jsx, removed `next-themes` dependency
+2. **CRITICAL:** Null-guarded `.toUpperCase()` on `supply_status` and `alert.type`
+3. **HIGH:** Added full-page error state to EnergyIntelligence (all 5 endpoints fail)
+4. **HIGH:** Added empty states for News and Circulars tabs
+5. **HIGH:** Added `<main>` landmark to all 5 pages
+6. **HIGH:** Added `aria-label` to all icon-only buttons (scroll, favorite, info, close)
+7. **HIGH:** Fixed duplicate SVG gradient IDs — unique per card/dialog instance
+8. **MEDIUM:** Removed dead `isBetter` variable from ClimateCard.jsx
+9. **MEDIUM:** Removed 8 dead API functions + entire `integrationAPI` export
+10. **MEDIUM:** Replaced `filteredMetrics` useState+useEffect with `useMemo` in ClimateImpact
+11. **MEDIUM:** Fixed O(n^2) min/max inside `.map()` in EnergyIntelligence
+12. **MEDIUM:** Improved NotFound h1 from "404" to "404 — Page Not Found" for SEO
+13. **MEDIUM:** Created `favicon.svg` and `robots.txt` in public/
+14. **MEDIUM:** Added Open Graph + Twitter Card meta tags to index.html
+15. **LOW:** Cleaned stale CRA template comments in index.html
+16. **LOW:** Gated all `console.error` behind `NODE_ENV !== 'production'` check
+17. **LOW:** Resolved dual toast system — switched all pages from `use-toast.js` to Sonner, deleted `use-toast.js` and empty `hooks/` directory
+18. **LOW:** Added `type="button"` to all non-submit buttons (prevents form submission bugs)
+19. **LOW:** Moved `BasketCard` component from inside GroceryBasket function body to module scope
+20. **LOW:** Cancelled — Navbar architecture (structural, low impact)
+21. **LOW:** Removed unused Inter font link (2 preconnects + 1 stylesheet) from index.html
+22. **LOW:** Fixed DOE circular link — conditionally wraps in `<a>` only when `circular.url` exists
+
+### Files deleted during audit
+- `frontend/src/mockData.js`
+- `frontend/src/hooks/use-toast.js` (and `hooks/` directory)
+- 41 files in `frontend/src/components/ui/` (accordion, alert-dialog, alert, aspect-ratio, avatar, badge, breadcrumb, calendar, carousel, checkbox, collapsible, command, context-menu, drawer, dropdown-menu, form, hover-card, input-otp, label, menubar, navigation-menu, pagination, popover, progress, radio-group, resizable, scroll-area, select, separator, sheet, skeleton, slider, switch, table, tabs, textarea, toast, toaster, toggle-group, toggle, tooltip)
+
+### npm dependencies removed
+35 packages removed from `package.json`, including: `@radix-ui/react-accordion`, `@radix-ui/react-alert-dialog`, `@radix-ui/react-avatar`, `@radix-ui/react-checkbox`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-label`, `@radix-ui/react-menubar`, `@radix-ui/react-navigation-menu`, `@radix-ui/react-popover`, `@radix-ui/react-progress`, `@radix-ui/react-radio-group`, `@radix-ui/react-scroll-area`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slider`, `@radix-ui/react-switch`, `@radix-ui/react-tabs`, `@radix-ui/react-toggle`, `@radix-ui/react-toggle-group`, `@radix-ui/react-tooltip`, `cmdk`, `date-fns`, `embla-carousel-react`, `input-otp`, `next-themes`, `react-day-picker`, `react-resizable-panels`, `vaul`, etc.
+
+Only 2 Radix packages retained: `@radix-ui/react-dialog`, `@radix-ui/react-slot`.
+
+---
+
 ## Roadmap (In Priority Order)
 - [x] A — GitHub Actions daily auto-refresh
 - [x] B — Fix DA Bantay Presyo integration (3 bugs)
@@ -190,6 +278,7 @@ GET  /api/basket/templates        # Feature D — preset baskets with live price
 - [x] G — Real DOE circulars (ERC blocked by Cloudflare; PPA stays mock)
 - [x] H — Multi-year historical price archive (POST /api/integration/run-historical-backfill)
 - [x] I — Crowdsourced pricing (POST /api/crowdsource/report, GET /api/crowdsource/summary)
+- [x] J — Frontend code audit: cleanup, accessibility, performance, SEO (2 rounds, 36 fixes)
 
 ## Environment Variables
 ```
@@ -286,6 +375,29 @@ REACT_APP_BACKEND_URL=https://climate-intel-api.onrender.com pytest backend/test
 - WeatherAPI update returns `success=False` when `WEATHERAPI_KEY` env var is missing
 - `/api/climate-metrics/{id}` returns 500 for both valid and invalid IDs (endpoint bug — not blocking)
 - `/api/market-items` defaults to `limit=100` — tests use `limit=300` to verify full count
+
+---
+
+## HTTP Reliability (`backend/services/http_utils.py`)
+All external HTTP fetches (DA PDFs, DOE, etc.) should use the shared `fetch_with_retry`:
+```python
+from services.http_utils import fetch_with_retry, DEFAULT_TIMEOUT
+async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
+    response = await fetch_with_retry(session, url, max_retries=3, headers=headers)
+```
+- **Retry policy**: 3 attempts, exponential backoff (2s, 4s, 8s)
+- **Retries on**: HTTP 5xx, `aiohttp.ClientError`, `asyncio.TimeoutError`
+- **No retry on**: HTTP 404 (resource doesn't exist), other 4xx
+- **Default timeout**: 45s per request
+- **Circuit breaker** in `daily_price_parser.download_multiple_days()`: stops after 3 consecutive days with no PDF
+- **Shared session**: one `aiohttp.ClientSession` per download batch, not per URL
+- **Rate limiting**: 1s delay between DA.gov.ph requests (government site)
+
+### NGCP Scraper Contract
+`ngcp_scraper.scrape()` returns `Optional[Dict]`:
+- Success: `{total_supply, total_demand, reserves, grids[], data_as_of, source}`
+- Failure: `None` (not `{}` — empty dicts are falsy in Python and cause subtle bugs)
+- `server.py` checks `if ngcp_data is not None:` before caching to MongoDB
 
 ---
 
