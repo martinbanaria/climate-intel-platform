@@ -78,6 +78,7 @@ async def health_check():
     """Health check endpoint with MongoDB connection diagnostic"""
     result = {
         "status": "ok",
+        "build": "20260320b",
         "python_version": os.popen("python3 --version").read().strip(),
         "openssl_version": ssl.OPENSSL_VERSION,
         "mongo_url_prefix": mongo_url[:30] + "...",
