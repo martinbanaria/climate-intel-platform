@@ -15,6 +15,7 @@ const EnergyIntelligence = () => {
   const [analytics, setAnalytics] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [contractFilter, setContractFilter] = useState('');
+  const [fetchError, setFetchError] = useState(false);
 
   const filteredContracts = contractFilter
     ? ppaList.filter(c => c.technology === contractFilter)
@@ -26,6 +27,7 @@ const EnergyIntelligence = () => {
 
   const fetchEnergyData = async () => {
     setLoading(true);
+    setFetchError(false);
     try {
       // Use allSettled so one failing endpoint doesn't block the rest
       const [gridRes, ppaRes, newsRes, circularRes, analyticsRes] = await Promise.allSettled([
@@ -41,8 +43,15 @@ const EnergyIntelligence = () => {
       if (newsRes.status === 'fulfilled' && newsRes.value?.success) setNews(newsRes.value.data);
       if (circularRes.status === 'fulfilled' && circularRes.value?.success) setCirculars(circularRes.value.data);
       if (analyticsRes.status === 'fulfilled' && analyticsRes.value?.success) setAnalytics(analyticsRes.value.data);
+
+      // If every endpoint failed, show error state
+      const allFailed = [gridRes, ppaRes, newsRes, circularRes, analyticsRes].every(
+        r => r.status === 'rejected' || !r.value?.success
+      );
+      if (allFailed) setFetchError(true);
     } catch (error) {
-      console.error('Error fetching energy data:', error);
+      process.env.NODE_ENV !== 'production' && console.error('Error fetching energy data:', error);
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -80,9 +89,35 @@ const EnergyIntelligence = () => {
     return (
       <div className="min-h-screen bg-slate-950">
         <Navbar />
-        <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+        <main className="flex items-center justify-center h-[calc(100vh-80px)]">
           <Loader2 className="w-12 h-12 animate-spin text-emerald-400" />
-        </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (fetchError && !gridStatus && !analytics && news.length === 0 && circulars.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-950">
+        <Navbar />
+        <main className="flex items-center justify-center h-[calc(100vh-80px)] px-4">
+          <div className="text-center max-w-md">
+            <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-white mb-2">Unable to Load Energy Data</h1>
+            <p className="text-gray-400 mb-6">
+              All energy data sources are currently unavailable. This may be due to a network issue or the backend server warming up.
+            </p>
+            <Button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-6"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              Try Again
+            </Button>
+          </div>
+        </main>
       </div>
     );
   }
@@ -91,7 +126,7 @@ const EnergyIntelligence = () => {
     <div className="min-h-screen bg-slate-950">
       <Navbar />
       
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -104,6 +139,7 @@ const EnergyIntelligence = () => {
             </p>
           </div>
           <Button 
+            type="button"
             onClick={handleRefresh} 
             disabled={refreshing}
             className="bg-slate-800 hover:bg-slate-700 border border-slate-700"
@@ -123,6 +159,7 @@ const EnergyIntelligence = () => {
             { id: 'news', label: 'News & Circulars', icon: ExternalLink }
           ].map((tab) => (
             <button
+              type="button"
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               data-testid={`tab-${tab.id}`}
@@ -259,7 +296,7 @@ const EnergyIntelligence = () => {
                               alert.severity === 'medium' ? 'bg-amber-500/20 text-amber-400' :
                               'bg-cyan-500/20 text-cyan-400'
                             }`}>
-                              {alert.type.toUpperCase()}
+                              {(alert.type || 'info').toUpperCase()}
                             </span>
                           </div>
                         </div>
@@ -276,11 +313,19 @@ const EnergyIntelligence = () => {
         {activeTab === 'prices' && analytics && (
           <div data-testid="prices-section">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              {Object.entries(analytics.price_trends).map(([region, data]) => (
+              {Object.entries(analytics.price_trends).map(([region, data]) => {
+                const unavailable = data.source === 'unavailable' || data.current == null;
+                const trend = data.trend || [];
+                const trendMax = trend.length ? Math.max(...trend) : 0;
+                const trendMin = trend.length ? Math.min(...trend) : 0;
+                return (
                 <Card key={region} className="bg-slate-800 border-slate-700 p-6" data-testid={`price-${region}`}>
                   <h3 className="text-lg font-bold text-white mb-1 capitalize">
                     {region.replace('wesm_', 'WESM ')}
                   </h3>
+                  {unavailable ? (
+                    <p className="text-gray-400 text-sm mt-2">Price data unavailable — IEMOP unreachable</p>
+                  ) : (<>
                   <div className="flex items-baseline space-x-2 mb-2">
                     <span className="text-4xl font-bold text-white">₱{data.current.toLocaleString()}</span>
                     <span className="text-lg text-gray-400">/MWh</span>
@@ -295,13 +340,11 @@ const EnergyIntelligence = () => {
                       {data.change_pct > 0 ? '+' : ''}{data.change_pct}% vs last week
                     </span>
                   </div>
-                  
+
                   {/* Mini Trend Chart */}
                   <div className="h-16 flex items-end space-x-1">
-                    {data.trend.map((val, idx) => {
-                      const max = Math.max(...data.trend);
-                      const min = Math.min(...data.trend);
-                      const height = ((val - min) / (max - min)) * 100 || 50;
+                    {trend.map((val, idx) => {
+                      const height = ((val - trendMin) / (trendMax - trendMin)) * 100 || 50;
                       return (
                         <div
                           key={idx}
@@ -315,8 +358,10 @@ const EnergyIntelligence = () => {
                     <span>6 weeks ago</span>
                     <span>Now</span>
                   </div>
+                  </>)}
                 </Card>
-              ))}
+                );
+              })}
             </div>
 
             {/* Market Outlook */}
@@ -357,6 +402,7 @@ const EnergyIntelligence = () => {
             <div className="flex flex-wrap gap-2 mb-4">
               {['All', 'Solar', 'Wind', 'Hydropower', 'Biomass', 'Ocean', 'Geothermal'].map((tech) => (
                 <button
+                  type="button"
                   key={tech}
                   onClick={() => setContractFilter(tech === 'All' ? '' : tech)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -395,9 +441,8 @@ const EnergyIntelligence = () => {
                       <tr>
                         <td colSpan={6} className="p-8 text-center">
                           <div className="text-gray-500">
-                            <Loader2 className="w-8 h-8 mx-auto mb-3 text-gray-600 animate-spin" />
-                            <p className="text-sm font-medium text-gray-400 mb-1">Loading RE contracts...</p>
-                            <p className="text-xs text-gray-600">Run POST /api/integration/run-ppa-update to populate data from DOE PDFs.</p>
+                            <p className="text-sm font-medium text-gray-400 mb-1">No RE contracts available</p>
+                            <p className="text-xs text-gray-600">Contract data is updated periodically. Check back later.</p>
                           </div>
                         </td>
                       </tr>
@@ -458,6 +503,13 @@ const EnergyIntelligence = () => {
             {/* Energy News */}
             <div className="mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Latest Energy News</h2>
+              {news.length === 0 ? (
+                <Card className="bg-slate-800 border-slate-700 p-8 text-center">
+                  <ExternalLink className="w-8 h-8 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400 font-medium mb-1">No energy news available</p>
+                  <p className="text-sm text-gray-600">News articles will appear here once fetched from NewsData.io.</p>
+                </Card>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {news.map((article, idx) => (
                   <Card key={idx} className="bg-slate-800 border-slate-700 p-6 hover:border-emerald-500/50 transition-colors" data-testid={`news-${idx}`}>
@@ -482,20 +534,22 @@ const EnergyIntelligence = () => {
                   </Card>
                 ))}
               </div>
+              )}
             </div>
 
             {/* DOE Circulars */}
             <div>
               <h2 className="text-xl font-bold text-white mb-4">DOE Circulars & Orders</h2>
+              {circulars.length === 0 ? (
+                <Card className="bg-slate-800 border-slate-700 p-8 text-center">
+                  <FileText className="w-8 h-8 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400 font-medium mb-1">No DOE circulars available</p>
+                  <p className="text-sm text-gray-600">Circulars and orders will appear here once scraped from doe.gov.ph.</p>
+                </Card>
+              ) : (
               <div className="space-y-3">
-                {circulars.map((circular, idx) => (
-                  <a
-                    key={idx}
-                    href={circular.url || '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block"
-                  >
+                {circulars.map((circular, idx) => {
+                  const cardContent = (
                   <Card className="bg-slate-800 border-slate-700 p-5 hover:border-emerald-500/50 transition-colors cursor-pointer" data-testid={`circular-${idx}`}>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -512,13 +566,27 @@ const EnergyIntelligence = () => {
                       <span className="text-xs text-gray-500 whitespace-nowrap ml-4">{circular.date}</span>
                     </div>
                   </Card>
-                  </a>
-                ))}
+                  );
+                  return circular.url ? (
+                    <a
+                      key={idx}
+                      href={circular.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      {cardContent}
+                    </a>
+                  ) : (
+                    <div key={idx}>{cardContent}</div>
+                  );
+                })}
               </div>
+              )}
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 };
